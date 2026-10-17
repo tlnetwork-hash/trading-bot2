@@ -15,11 +15,12 @@ behaves, you change one line to trade for real.
 3. [What you need](#what-you-need)
 4. [Setup, step by step](#setup-step-by-step)
 5. [Everyday commands](#everyday-commands)
-6. [Going live with real money](#going-live-with-real-money)
-7. [Changing settings](#changing-settings)
-8. [The emails you'll get](#the-emails-youll-get)
-9. [Troubleshooting](#troubleshooting)
-10. [For the curious: code layout and tests](#for-the-curious-code-layout-and-tests)
+6. [Dashboard](#dashboard)
+7. [Going live with real money](#going-live-with-real-money)
+8. [Changing settings](#changing-settings)
+9. [The emails you'll get](#the-emails-youll-get)
+10. [Troubleshooting](#troubleshooting)
+11. [For the curious: code layout and tests](#for-the-curious-code-layout-and-tests)
 
 ---
 
@@ -233,6 +234,44 @@ limit from your *current* balance.
 
 ---
 
+## Dashboard
+
+A read-only web page that shows:
+- your equity over time, with your starting amount and the kill-switch level marked
+- the current price and the grid (each buy and sell order, with a "now" line at the current price)
+- what the bot is holding
+- the last 50 trades
+
+It refreshes every 15 seconds. It can't place, cancel or change anything.
+
+By default the dashboard is reachable **only from the server itself**. The safe way to open it
+from your phone or computer is **[Tailscale](https://tailscale.com)**, a free private network
+between your own devices. Nobody else on the internet can see the page.
+
+1. Install Tailscale on the server and sign in. If it's already installed, skip this.
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sh
+   tailscale up
+   ```
+2. Install the Tailscale app on your phone and/or computer and sign in with the **same account**.
+3. On the server, find its Tailscale address and tell the dashboard to listen on it:
+   ```bash
+   tailscale ip -4                       # prints something like 100.73.129.3
+   cd ~/trading-bot2
+   nano .env                             # set  DASHBOARD_BIND=100.73.129.3  (your address)
+   docker compose up -d
+   ```
+4. With Tailscale switched on, open **http://100.73.129.3:8080** (using your address) on your
+   phone or computer. Bookmark it, or add it to your phone's home screen.
+
+> Never set `DASHBOARD_BIND=0.0.0.0`. That puts the page on the public internet.
+
+The chart gets a new point every 5 minutes, so give it a little while after starting.
+Equity history and the trade log are saved in `data/history-<mode>.jsonl` and
+`data/trades-<mode>.jsonl`.
+
+---
+
 ## Going live with real money
 
 Only go live after paper mode has run for a while (1–2 weeks is a good minimum) and you're
@@ -353,6 +392,7 @@ bot/
   trader.py     the main loop: orders, fills, breakout pause, kill switch, reports
   exchange.py   Kraken via the ccxt library (live), or a simulator (paper)
   notifier.py   Gmail alerts
+  dashboard.py  read-only web dashboard (+ dashboard.html)
   state.py      saves the bot's memory to data/state-<mode>.json
 tests/          automated tests using a fake Kraken (no internet needed)
 ```

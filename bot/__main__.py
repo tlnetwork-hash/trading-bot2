@@ -6,6 +6,7 @@
     python -m bot pause      cancel all orders and stop trading
     python -m bot resume     build a fresh grid and start trading again
     python -m bot reset      cancel orders, sell the bot's coins, start over
+    python -m bot dashboard  serve the read-only web dashboard on port 8080
 """
 
 import argparse
@@ -117,7 +118,7 @@ def send_command(cfg, command):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m bot", description="Kraken grid trading bot")
     parser.add_argument("command", nargs="?", default="run",
-                        choices=["run", "check", "status", "pause", "resume", "reset"])
+                        choices=["run", "check", "status", "pause", "resume", "reset", "dashboard"])
     parser.add_argument("--config", default="config.yaml")
     args = parser.parse_args(argv)
 
@@ -142,6 +143,10 @@ def main(argv=None):
             sys.exit(f"Cannot reach Kraken from this server: {e}")
     elif args.command == "status":
         status(cfg)
+    elif args.command == "dashboard":
+        from .dashboard import serve
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+        serve(cfg)
     else:
         send_command(cfg, args.command)
 

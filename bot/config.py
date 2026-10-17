@@ -77,6 +77,14 @@ class Config:
     def command_path(self):
         return self.data_dir / "command.txt"
 
+    @property
+    def history_path(self):
+        return self.data_dir / f"history-{self.mode}.jsonl"
+
+    @property
+    def trades_path(self):
+        return self.data_dir / f"trades-{self.mode}.jsonl"
+
     def validate(self):
         if self.mode not in ("paper", "live"):
             raise ConfigError("mode must be 'paper' or 'live'")

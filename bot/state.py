@@ -2,6 +2,7 @@
 
 import json
 import os
+from collections import deque
 from datetime import datetime, timezone
 
 
@@ -27,6 +28,28 @@ def new_state(cfg):
         "paper": {"seq": 0, "orders": {}},
         "last_price": None,
     }
+
+
+def append_jsonl(path, record):
+    """Add one line to a log file (equity history, trade log)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def read_jsonl_tail(path, max_lines):
+    try:
+        with open(path) as f:
+            lines = deque(f, maxlen=max_lines)
+    except FileNotFoundError:
+        return []
+    records = []
+    for line in lines:
+        try:
+            records.append(json.loads(line))
+        except ValueError:
+            pass  # a line cut short by a crash
+    return records
 
 
 def load_state(path):

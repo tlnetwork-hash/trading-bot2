@@ -6,11 +6,12 @@ import threading
 import ccxt
 
 from .grid import GridError, average_true_range, plan_grid, range_pct_from_atr
-from .state import new_state, save_state, utcnow
+from .state import append_jsonl, new_state, save_state, utcnow
 
 log = logging.getLogger(__name__)
 
 NETWORK_ALERT_AFTER = 20  # consecutive failed ticks (~10 min at 30s) before emailing
+HISTORY_INTERVAL = 300   # seconds between equity points saved for the dashboard chart
 
 
 class BotError(Exception):
@@ -25,6 +26,7 @@ class GridBot:
         self.state = state
         self.network_failures = 0
         self.last_error_email = None
+        self.last_history = None
         if state["symbol"] != cfg.symbol:
             raise BotError(
                 f"saved state is for {state['symbol']} but config.yaml says {cfg.symbol}. "
@@ -75,6 +77,7 @@ class GridBot:
         if st["status"] == "running" and st["grid"]:
             self._check_breakout(price)
         self._maybe_daily_report(price)
+        self._record_history(price)
         self.save()
 
     def save(self):
@@ -175,6 +178,7 @@ class GridBot:
         info = self.ex.market_order(side, amount, price)
         amount, fill_price, fee = self._apply_fill(side, info)
         log.info("rebalance: market %s %s %s @ %.4f (fee $%.4f)", side, amount, self.ex.base, fill_price, fee)
+        self._log_trade("rebalance", side, amount, fill_price, fee)
 
     def _place(self, index, side, amount):
         """Record the order first, then send it. If sending fails it stays
@@ -245,8 +249,10 @@ class GridBot:
             stats["buys"] += 1
             counter_index, counter_side = index + 1, "sell"
             profit_line = ""
+            profit = None
         else:
             stats["sells"] += 1
+            profit = None
             counter_index, counter_side = index - 1, "buy"
             if index > 0:
                 # Profit of this completed buy-low/sell-high step, after both fees.
@@ -258,6 +264,7 @@ class GridBot:
             else:
                 profit_line = ""
 
+        self._log_trade("grid", side, amount, price, fee, profit)
         if 0 <= counter_index < len(levels):
             self._place(counter_index, counter_side, amount)
             next_line = f"Next: {counter_side} at ${levels[counter_index]:,.2f}\n"
@@ -281,7 +288,8 @@ class GridBot:
                 self.ex.cancel_order(order["id"])
                 info = self.ex.fetch_order(order["id"])
                 if info.filled > 0:
-                    self._apply_fill(order["side"], info)
+                    amount, price, fee = self._apply_fill(order["side"], info)
+                    self._log_trade("before-cancel", order["side"], amount, price, fee)
                     self.state["stats"]["buys" if order["side"] == "buy" else "sells"] += 1
                 self.ex.forget_order(order["id"])
             del self.state["orders"][key]
@@ -390,7 +398,8 @@ class GridBot:
         sold = ""
         if amount >= self.ex.min_amount:
             info = self.ex.market_order("sell", amount, price)
-            amount, fill_price, _ = self._apply_fill("sell", info)
+            amount, fill_price, fee = self._apply_fill("sell", info)
+            self._log_trade("reset", "sell", amount, fill_price, fee)
             sold = f"Sold {amount} {self.ex.base} @ ${fill_price:,.2f}.\n"
         final = self.state["balances"]["quote"]
         self.state = new_state(self.cfg)
@@ -401,6 +410,22 @@ class GridBot:
                                         f"Starting fresh with ${self.cfg.capital_usd:,.2f}.")
 
     # --------------------------------------------------------------- reports
+
+    def _log_trade(self, kind, side, amount, price, fee, profit=None):
+        append_jsonl(self.cfg.trades_path, {
+            "t": utcnow().isoformat(timespec="seconds"), "kind": kind, "side": side,
+            "amount": amount, "price": price, "fee": fee, "profit": profit,
+        })
+
+    def _record_history(self, price):
+        now = utcnow()
+        if self.last_history and (now - self.last_history).total_seconds() < HISTORY_INTERVAL:
+            return
+        self.last_history = now
+        append_jsonl(self.cfg.history_path, {
+            "t": now.isoformat(timespec="seconds"), "price": price,
+            "equity": round(self.equity(price), 4), "status": self.state["status"],
+        })
 
     def _maybe_daily_report(self, price):
         report = self.state["report"]
