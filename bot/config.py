@@ -47,10 +47,22 @@ class EmailSecrets:
     gmail_address: str = ""
     gmail_app_password: str = ""
     to_address: str = ""
+    brevo_api_key: str = ""
+
+    @property
+    def method(self):
+        """Brevo's web API if a key is set (works where email ports are blocked), else Gmail."""
+        if not self.to_address or not self.gmail_address:
+            return None
+        if self.brevo_api_key:
+            return "brevo"
+        if self.gmail_app_password:
+            return "gmail"
+        return None
 
     @property
     def enabled(self):
-        return bool(self.gmail_address and self.gmail_app_password and self.to_address)
+        return self.method is not None
 
 
 @dataclass
@@ -138,6 +150,7 @@ def load_config(path="config.yaml", env=None):
             gmail_address=env.get("GMAIL_ADDRESS", "").strip(),
             gmail_app_password=env.get("GMAIL_APP_PASSWORD", "").replace(" ", ""),
             to_address=env.get("ALERT_EMAIL_TO", "").strip() or env.get("GMAIL_ADDRESS", "").strip(),
+            brevo_api_key=env.get("BREVO_API_KEY", "").strip(),
         ),
         kraken_api_key=env.get("KRAKEN_API_KEY", "").strip(),
         kraken_api_secret=env.get("KRAKEN_API_SECRET", "").strip(),

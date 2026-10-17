@@ -270,6 +270,19 @@ The chart gets a new point every 5 minutes, so give it a little while after star
 Equity history and the trade log are saved in `data/history-<mode>.jsonl` and
 `data/trades-<mode>.jsonl`.
 
+### Email through Brevo
+
+Some providers, including **DigitalOcean**, block the ports used to send email, so Gmail can't
+send from the server. Brevo sends over the normal web port instead, and it's free for up to
+300 emails a day.
+
+1. Sign up at https://www.brevo.com using your Gmail address.
+2. Make sure that address is a verified sender: *Senders, Domains & Dedicated IPs → Senders*.
+3. Create an API key: your name (top right) → *SMTP & API → API Keys → Generate a new API key*.
+4. In `.env`, set `GMAIL_ADDRESS` (the sender), `ALERT_EMAIL_TO` and `BREVO_API_KEY`, then run
+   `docker compose up -d --force-recreate` followed by
+   `docker compose exec bot python -m bot check`.
+
 ---
 
 ## Going live with real money
@@ -367,6 +380,7 @@ Grid settings take effect the next time a grid is built. To apply them right awa
 
 | Problem | Fix |
 |---|---|
+| `check` hangs and then email fails, `timed out` | Your server provider blocks email ports (DigitalOcean does by default). Use Brevo instead: see [Email through Brevo](#email-through-brevo) |
 | No emails at all | Run `check`. Look in spam. Make sure `GMAIL_APP_PASSWORD` is the 16-letter app password, not your normal Gmail password |
 | `Config problem: ...` in the logs | Your `config.yaml` has a typo. The message says which setting |
 | `could not build grid: ... too little` | `capital_usd` is too small for Kraken's minimum order size. Raise it |
@@ -391,7 +405,7 @@ bot/
   grid.py       grid math: volatility (ATR) and where the lines go
   trader.py     the main loop: orders, fills, breakout pause, kill switch, reports
   exchange.py   Kraken via the ccxt library (live), or a simulator (paper)
-  notifier.py   Gmail alerts
+  notifier.py   email alerts (Brevo web API or Gmail)
   dashboard.py  read-only web dashboard (+ dashboard.html)
   state.py      saves the bot's memory to data/state-<mode>.json
 tests/          automated tests using a fake Kraken (no internet needed)

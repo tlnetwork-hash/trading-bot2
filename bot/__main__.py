@@ -90,11 +90,15 @@ def check(cfg):
     else:
         print("No Kraken API key set (fine for paper mode)")
     if cfg.email.enabled:
-        Notifier(cfg.email, f"{cfg.symbol} grid {cfg.mode.upper()}").send(
+        sent = Notifier(cfg.email, f"{cfg.symbol} grid {cfg.mode.upper()}").send(
             "Test email", "If you can read this, email alerts are working.")
-        print(f"Test email sent to {cfg.email.to_address} (check spam if you don't see it)")
+        if sent:
+            print(f"Test email sent via {cfg.email.method} to {cfg.email.to_address} "
+                  "(check spam if you don't see it)")
+        else:
+            print(f"Test email via {cfg.email.method} FAILED - see the error above")
     else:
-        print("Email NOT configured: set GMAIL_ADDRESS and GMAIL_APP_PASSWORD in .env")
+        print("Email NOT configured: set GMAIL_ADDRESS plus BREVO_API_KEY or GMAIL_APP_PASSWORD in .env")
 
 
 def status(cfg):
