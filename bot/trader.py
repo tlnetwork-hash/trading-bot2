@@ -53,7 +53,8 @@ class GridBot:
                 self.network_failures += 1
                 log.warning("network problem talking to Kraken (%d in a row): %s", self.network_failures, e)
                 if self.network_failures == NETWORK_ALERT_AFTER:
-                    self.notifier.send("Cannot reach Kraken", f"{NETWORK_ALERT_AFTER} failed attempts in a row.\nLast error: {e}")
+                    self.notifier.send("Cannot reach Kraken", f"{NETWORK_ALERT_AFTER} failed attempts in a row.\nLast error: {e}",
+                                         priority="high")
             except Exception as e:
                 log.exception("error during tick")
                 self._error_email(e)
@@ -279,7 +280,7 @@ class GridBot:
         )
         log.info("fill at level %d: %s", index, msg.replace("\n", " | "))
         if self.cfg.alerts.email_on_every_fill:
-            self.notifier.send(f"{side.upper()} filled @ ${price:,.2f}", msg)
+            self.notifier.send(f"{side.upper()} filled @ ${price:,.2f}", msg, priority="low")
 
     def _cancel_all(self):
         """Cancel every grid order, counting anything that filled before the cancel."""
@@ -321,6 +322,7 @@ class GridBot:
             "  docker compose exec bot python -m bot resume\n"
             "To sell everything and start over:\n"
             "  docker compose exec bot python -m bot reset",
+            priority="urgent",
         )
         return True
 
@@ -358,6 +360,7 @@ class GridBot:
             f"Equity: ${self.equity(price):,.2f}\n\n"
             "To build a new grid around the current price:\n"
             "  docker compose exec bot python -m bot resume",
+            priority="high",
         )
 
     # -------------------------------------------------------------- commands
@@ -468,4 +471,4 @@ class GridBot:
             return
         self.last_error_email = now
         self.notifier.send("Error", f"{type(error).__name__}: {error}\n\nThe bot keeps running and will retry. "
-                                    "Check the logs: docker compose logs --tail 100 bot")
+                                    "Check the logs: docker compose logs --tail 100 bot", priority="high")

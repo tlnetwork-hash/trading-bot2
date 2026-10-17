@@ -64,3 +64,45 @@ def test_brevo_error_never_raises(monkeypatch, caplog):
 
 def test_unconfigured_returns_false():
     assert Notifier(EmailSecrets(), "x").send("s", "b") is False
+
+
+def test_ntfy_request(monkeypatch):
+    seen = {}
+
+    def fake_urlopen(request, timeout):
+        seen.update(url=request.full_url, body=request.data.decode(),
+                    title=request.get_header("Title"), priority=request.get_header("Priority"))
+        return FakeResponse()
+
+    monkeypatch.setattr(notifier_mod.urllib.request, "urlopen", fake_urlopen)
+    n = Notifier(EmailSecrets(), "SOL grid paper", "https://ntfy.sh/gridbot-abc")
+    assert n.channels == ["ntfy"]
+    assert n.send("KILL SWITCH – halted", "details", priority="urgent") is True
+    assert seen == {"url": "https://ntfy.sh/gridbot-abc", "body": "details",
+                    "title": "SOL grid paper: KILL SWITCH ? halted", "priority": "urgent"}
+
+
+def test_sends_to_both_channels_and_survives_one_failing(monkeypatch):
+    urls = []
+
+    def fake_urlopen(request, timeout):
+        urls.append(request.full_url)
+        if "brevo" in request.full_url:
+            raise OSError("brevo down")
+        return FakeResponse()
+
+    monkeypatch.setattr(notifier_mod.urllib.request, "urlopen", fake_urlopen)
+    n = Notifier(EmailSecrets("me@gmail.com", "", "me@gmail.com", "k"), "x", "https://ntfy.sh/t")
+    assert n.channels == ["ntfy", "email"]
+    assert n.send("s", "b") is True          # ntfy worked even though email failed
+    assert urls == ["https://ntfy.sh/t", notifier_mod.BREVO_URL]
+
+
+def test_ntfy_topic_from_env(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("mode: paper\n")
+    assert load_config(path, env={}).ntfy_url == ""
+    cfg = load_config(path, env={"NTFY_TOPIC": "gridbot-xyz"})
+    assert cfg.ntfy_url == "https://ntfy.sh/gridbot-xyz"
+    cfg = load_config(path, env={"NTFY_TOPIC": "t", "NTFY_SERVER": "https://ntfy.example.com/"})
+    assert cfg.ntfy_url == "https://ntfy.example.com/t"

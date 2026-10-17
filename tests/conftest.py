@@ -42,9 +42,11 @@ class FakeKraken:
 class FakeNotifier:
     def __init__(self):
         self.sent = []
+        self.priorities = {}
 
-    def send(self, subject, body):
+    def send(self, subject, body, priority="default"):
         self.sent.append((subject, body))
+        self.priorities[subject] = priority
 
     def subjects(self):
         return [s for s, _ in self.sent]

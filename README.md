@@ -273,6 +273,27 @@ The chart gets a new point every 5 minutes, so give it a little while after star
 Equity history and the trade log are saved in `data/history-<mode>.jsonl` and
 `data/trades-<mode>.jsonl`.
 
+### Phone alerts (ntfy)
+
+The quickest alerts come from **ntfy**, a free phone notification app with no account needed.
+The bot sends:
+- **Urgent:** the kill switch.
+- **High:** pauses, errors, and losing the connection to Kraken.
+- **Normal:** the daily summary.
+- **Low (silent):** every trade.
+
+The dashboard container also runs a **watchdog**. If the bot stops saving updates for 5
+minutes (crashed, stuck, or restarting over and over), it sends an urgent alert, and
+another when the bot recovers.
+
+1. Install **ntfy** from the App Store or Google Play.
+2. Pick a long random topic name. It works like a password: anyone who knows it can read your
+   alerts. For example, `gridbot-` followed by 16 random letters and numbers.
+3. In the app, tap **+** and subscribe to that topic (server: `ntfy.sh`).
+4. On the server, set `NTFY_TOPIC=your-topic` in `.env`, then run
+   `docker compose up -d --force-recreate` followed by
+   `docker compose exec bot python -m bot check`. A test notification should arrive.
+
 ### Email through Brevo
 
 Some providers, including **DigitalOcean**, block the ports used to send email, so Gmail can't
@@ -408,7 +429,7 @@ bot/
   grid.py       grid math: volatility (ATR) and where the lines go
   trader.py     the main loop: orders, fills, breakout pause, kill switch, reports
   exchange.py   Kraken via the ccxt library (live), or a simulator (paper)
-  notifier.py   email alerts (Brevo web API or Gmail)
+  notifier.py   alerts: ntfy phone push, email (Brevo web API or Gmail)
   dashboard.py  read-only web dashboard (+ dashboard.html)
   state.py      saves the bot's memory to data/state-<mode>.json
 tests/          automated tests using a fake Kraken (no internet needed)

@@ -148,7 +148,50 @@ def make_handler(cfg, candles=None):
     return Handler
 
 
-def serve(cfg, host="0.0.0.0", port=8080):
+STALE_AFTER = 300  # seconds without a state update before the watchdog alerts
+
+
+class Watchdog:
+    """Alerts if the bot stops saving its state (crashed, stuck, or restarting
+    over and over). It runs in the dashboard container, so it keeps working
+    when the bot container doesn't."""
+
+    def __init__(self, cfg, notifier, clock=time.time):
+        self.cfg = cfg
+        self.notifier = notifier
+        self.clock = clock
+        self.alerted = False
+
+    def check(self):
+        try:
+            age = self.clock() - os.path.getmtime(self.cfg.state_path)
+        except OSError:
+            return  # bot hasn't run yet
+        if age > STALE_AFTER and not self.alerted:
+            self.alerted = True
+            self.notifier.send(
+                "Bot stopped updating",
+                f"The bot hasn't saved anything for {age / 60:.0f} minutes. It may have crashed or be stuck.\n"
+                "Check with: docker compose ps  and  docker compose logs --tail 50 bot\n"
+                "(Or ask Claude to look.)",
+                priority="urgent",
+            )
+        elif age <= STALE_AFTER and self.alerted:
+            self.alerted = False
+            self.notifier.send("Bot is running again", "The bot is saving updates normally again.")
+
+    def run_forever(self, interval=60):
+        while True:
+            try:
+                self.check()
+            except Exception:
+                log.exception("watchdog check failed")
+            time.sleep(interval)
+
+
+def serve(cfg, host="0.0.0.0", port=8080, notifier=None):
+    if notifier is not None:
+        threading.Thread(target=Watchdog(cfg, notifier).run_forever, daemon=True).start()
     server = ThreadingHTTPServer((host, port), make_handler(cfg))
     log.info("dashboard on http://%s:%d", host, port)
     server.serve_forever()

@@ -47,6 +47,10 @@ def make_exchange(cfg, state):
     return PaperExchange(cfg.symbol, state["paper"], cfg.fees, cfg.paper_slippage_pct)
 
 
+def make_notifier(cfg):
+    return Notifier(cfg.email, f"{cfg.symbol.split('/')[0]} grid {cfg.mode}", cfg.ntfy_url)
+
+
 def run(cfg):
     setup_logging(cfg)
     log.info("starting in %s mode on %s with $%.2f", cfg.mode.upper(), cfg.symbol, cfg.capital_usd)
@@ -62,7 +66,7 @@ def run(cfg):
         state = new_state(cfg)
         save_state(cfg.state_path, state)
         log.info("no saved state found, starting fresh")
-    notifier = Notifier(cfg.email, f"{cfg.symbol} grid {cfg.mode.upper()}")
+    notifier = make_notifier(cfg)
 
     # Kraken can be briefly unreachable when the server boots; keep trying.
     while not stop.is_set():
@@ -89,16 +93,23 @@ def check(cfg):
         print(f"Kraken API key works: ${quote_free:,.2f} {live.quote} and {base_free} {live.base} available")
     else:
         print("No Kraken API key set (fine for paper mode)")
-    if cfg.email.enabled:
-        sent = Notifier(cfg.email, f"{cfg.symbol} grid {cfg.mode.upper()}").send(
-            "Test email", "If you can read this, email alerts are working.")
-        if sent:
-            print(f"Test email sent via {cfg.email.method} to {cfg.email.to_address} "
-                  "(check spam if you don't see it)")
-        else:
-            print(f"Test email via {cfg.email.method} FAILED - see the error above")
+    notifier = make_notifier(cfg)
+    if cfg.ntfy_url:
+        ok = notifier._attempt("ntfy", notifier._send_ntfy, "Test alert",
+                               "If you can read this, phone alerts are working.", "default")
+        print(f"Test phone alert sent to ntfy topic {cfg.ntfy_topic}" if ok else
+              "Test phone alert via ntfy FAILED - see the error above")
     else:
-        print("Email NOT configured: set GMAIL_ADDRESS plus BREVO_API_KEY or GMAIL_APP_PASSWORD in .env")
+        print("Phone alerts (ntfy) not configured: set NTFY_TOPIC in .env")
+    if cfg.email.enabled:
+        send = notifier._send_brevo if cfg.email.method == "brevo" else notifier._send_gmail
+        ok = notifier._attempt(cfg.email.method, send, f"[{notifier.prefix}] Test email",
+                               "If you can read this, email alerts are working.")
+        print(f"Test email sent via {cfg.email.method} to {cfg.email.to_address} "
+              "(check spam if you don't see it)" if ok else
+              f"Test email via {cfg.email.method} FAILED - see the error above")
+    else:
+        print("Email not configured: set GMAIL_ADDRESS plus BREVO_API_KEY or GMAIL_APP_PASSWORD in .env")
 
 
 def status(cfg):
@@ -150,7 +161,7 @@ def main(argv=None):
     elif args.command == "dashboard":
         from .dashboard import serve
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
-        serve(cfg)
+        serve(cfg, notifier=make_notifier(cfg))
     else:
         send_command(cfg, args.command)
 
