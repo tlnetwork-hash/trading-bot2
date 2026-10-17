@@ -69,3 +69,39 @@ def test_http_server(make_bot, cfg):
             assert e.code == 404
     finally:
         server.shutdown()
+
+
+def test_candle_source_caches_and_survives_errors(monkeypatch):
+    from bot import dashboard
+    calls = []
+
+    def fetch(tf, n):
+        calls.append((tf, n))
+        if len(calls) == 2:
+            raise RuntimeError("kraken down")
+        return [[i * 60000, 1, 2, 0.5, 1.5, 10] for i in range(n + 5)]
+
+    clock = [1000.0]
+    monkeypatch.setattr(dashboard.time, "time", lambda: clock[0])
+    src = dashboard.CandleSource("SOL/USD", fetch)
+    first = src.get("1h")
+    assert first["timeframe"] == "1m" and len(first["candles"]) == 60
+    assert src.get("1h") is first and len(calls) == 1      # cached
+    clock[0] += 11
+    assert src.get("1h") is first and len(calls) == 2      # fetch failed -> stale copy
+    assert "error" in src.get("bogus")
+    assert "error" in dashboard.CandleSource("SOL/USD", lambda tf, n: 1 / 0).get("24h")
+
+
+def test_candles_endpoint(make_bot, cfg):
+    from bot.dashboard import CandleSource
+    run_some_trades(make_bot)
+    src = CandleSource("SOL/USD", lambda tf, n: [[i, 1, 2, 0.5, 1.5, 1] for i in range(n)])
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(cfg, src))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        body = json.loads(urllib.request.urlopen(
+            f"http://127.0.0.1:{server.server_port}/api/candles?range=7d").read())
+        assert body["timeframe"] == "1h" and len(body["candles"]) == 168
+    finally:
+        server.shutdown()

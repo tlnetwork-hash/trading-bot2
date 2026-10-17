@@ -7,6 +7,7 @@ so it can never place, cancel or change anything.
 import json
 import logging
 import os
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +20,58 @@ log = logging.getLogger(__name__)
 PAGE = (Path(__file__).parent / "dashboard.html").read_bytes()
 HISTORY_POINTS = 12 * 24 * 90   # 90 days of 5-minute points
 TRADE_ROWS = 50
+
+# Price chart ranges: name -> (candle size, number of candles)
+CANDLE_RANGES = {
+    "1h": ("1m", 60),
+    "6h": ("5m", 72),
+    "24h": ("15m", 96),
+    "7d": ("1h", 168),
+    "30d": ("4h", 180),
+}
+CANDLE_CACHE_SECONDS = 10
+
+
+class CandleSource:
+    """Fetches price candles from Kraken's public API, cached so that several
+    open browser tabs don't multiply requests to Kraken."""
+
+    def __init__(self, symbol, fetch_ohlcv=None):
+        self.symbol = symbol
+        self._fetch = fetch_ohlcv
+        self._cache = {}
+        self._lock = threading.Lock()
+
+    def _fetch_ohlcv(self, timeframe, limit):
+        if self._fetch is None:
+            import ccxt
+            client = ccxt.kraken({"enableRateLimit": True, "timeout": 15000})
+            self._fetch = lambda tf, n: client.fetch_ohlcv(self.symbol, tf, limit=n)
+        return self._fetch(timeframe, limit)
+
+    def get(self, range_name):
+        if range_name not in CANDLE_RANGES:
+            return {"error": f"unknown range {range_name!r}"}
+        timeframe, count = CANDLE_RANGES[range_name]
+        with self._lock:
+            cached = self._cache.get(range_name)
+            if cached and time.time() - cached[0] < CANDLE_CACHE_SECONDS:
+                return cached[1]
+            try:
+                rows = self._fetch_ohlcv(timeframe, count)
+            except Exception as e:
+                log.warning("could not fetch candles: %s", e)
+                if cached:
+                    return cached[1]  # better a slightly old chart than none
+                return {"error": "could not reach Kraken for price data"}
+            result = {
+                "symbol": self.symbol,
+                "range": range_name,
+                "timeframe": timeframe,
+                "candles": [[r[0], r[1], r[2], r[3], r[4], r[5]] for r in rows[-count:]],
+            }
+            self._cache[range_name] = (time.time(), result)
+            return result
 
 
 def snapshot(cfg):
@@ -62,14 +115,20 @@ def snapshot(cfg):
     }
 
 
-def make_handler(cfg):
+def make_handler(cfg, candles=None):
+    candles = candles or CandleSource(cfg.symbol)
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            path = self.path.split("?")[0]
+            path, _, query = self.path.partition("?")
             if path == "/":
                 self._send(200, "text/html; charset=utf-8", PAGE)
             elif path == "/api/state":
                 body = json.dumps(snapshot(cfg)).encode()
+                self._send(200, "application/json", body)
+            elif path == "/api/candles":
+                params = dict(p.split("=", 1) for p in query.split("&") if "=" in p)
+                body = json.dumps(candles.get(params.get("range", "24h"))).encode()
                 self._send(200, "application/json", body)
             else:
                 self._send(404, "text/plain", b"not found")

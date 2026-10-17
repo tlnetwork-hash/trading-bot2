@@ -70,6 +70,16 @@ td.num, th.num { text-align: right; }
 dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-variant-numeric: tabular-nums; }
 dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
 .trades-card { margin-top: 14px; overflow-x: auto; }
+.price-card { margin-bottom: 14px; }
+.price-card h2 { flex-wrap: wrap; }
+.pc-last { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.pc-chg { font-size: 12px; color: var(--text-2); font-weight: 500; font-variant-numeric: tabular-nums; }
+.live { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--text-2); }
+.live .dot { width: 7px; height: 7px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--text-2); margin-top: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend svg { width: auto; display: inline; }
+.equity-card { margin-top: 0; }
 .muted { color: var(--text-3); }
 </style>
 </head>
@@ -91,7 +101,28 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
     <div class="card tile"><div class="label">Kill switch</div><div class="value" id="kill">-</div><div class="sub" id="kill-sub"></div></div>
   </section>
 
-  <section class="card">
+  <section class="card price-card">
+    <h2><span id="pc-symbol">Price</span> <span class="pc-last" id="pc-last"></span> <span class="pc-chg" id="pc-chg"></span>
+      <span class="live" id="live" title="Live prices stream straight from Kraken to your browser"><span class="dot"></span><span>connecting</span></span>
+      <span class="ranges" role="group" aria-label="Price chart range" id="pc-ranges">
+        <button data-prange="1h">1H</button><button data-prange="6h">6H</button><button data-prange="24h">24H</button><button data-prange="7d">7D</button><button data-prange="30d">30D</button>
+      </span>
+    </h2>
+    <div class="chart-wrap">
+      <svg id="pchart" height="320" role="img" aria-label="Price candles with the bot's orders and trades"></svg>
+      <div class="tip" id="ptip"></div>
+    </div>
+    <div class="legend">
+      <span><svg width="10" height="14"><line x1="5" x2="5" y1="0" y2="14" stroke="var(--text-2)"/><rect x="1" y="3" width="8" height="8" fill="var(--surface)" stroke="var(--text-2)"/></svg>up candle</span>
+      <span><svg width="10" height="14"><line x1="5" x2="5" y1="0" y2="14" stroke="var(--text-2)"/><rect x="1" y="3" width="8" height="8" fill="var(--text-2)"/></svg>down candle</span>
+      <span><svg width="22" height="4"><line x1="0" x2="22" y1="2" y2="2" stroke="var(--buy)" stroke-width="1.5" stroke-dasharray="4 3"/></svg>bot buy order</span>
+      <span><svg width="22" height="4"><line x1="0" x2="22" y1="2" y2="2" stroke="var(--sell)" stroke-width="1.5" stroke-dasharray="4 3"/></svg>bot sell order</span>
+      <span><svg width="10" height="10"><path d="M5 1 L9.5 9 L0.5 9 Z" fill="var(--buy)"/></svg>bot bought</span>
+      <span><svg width="10" height="10"><path d="M0.5 1 L9.5 1 L5 9 Z" fill="var(--sell)"/></svg>bot sold</span>
+    </div>
+  </section>
+
+  <section class="card equity-card">
     <h2>Equity
       <span class="ranges" role="group" aria-label="Time range">
         <button data-range="24" aria-pressed="false">24h</button>
@@ -167,7 +198,7 @@ function render() {
   $("equity").textContent = usd(d.equity);
   $("equity-sub").textContent = pct(change) + " since start (" + usd(d.start_equity) + ")";
   $("price-label").textContent = d.symbol + " price";
-  $("price").textContent = usd(d.price);
+  $("price").textContent = usd(livePrice ?? d.price);
   $("price-sub").textContent = d.grid ? "grid " + usd(d.grid.lower) + " - " + usd(d.grid.upper) : "no grid";
   $("profit").textContent = usd(d.stats.grid_profit);
   $("profit-sub").textContent = d.stats.round_trips + " round trips, " + d.stats.buys + " buys / " + d.stats.sells + " sells";
@@ -291,16 +322,194 @@ function renderChart() {
   });
 }
 
-document.querySelectorAll(".ranges button").forEach((b) => {
+document.querySelectorAll(".ranges button[data-range]").forEach((b) => {
   b.setAttribute("aria-pressed", String(Number(b.dataset.range) === rangeHours));
   b.addEventListener("click", () => {
     rangeHours = Number(b.dataset.range);
     try { localStorage.setItem("range", rangeHours); } catch (e) {}
-    document.querySelectorAll(".ranges button").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+    document.querySelectorAll(".ranges button[data-range]").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
     if (data) renderChart();
   });
 });
-window.addEventListener("resize", () => data && renderChart());
+window.addEventListener("resize", () => { if (data) renderChart(); renderPriceChart(); });
+
+// ---------------------------------------------------------------- price chart
+const CANDLE_MS = { "1h": 60e3, "6h": 300e3, "24h": 900e3, "7d": 3600e3, "30d": 14400e3 };
+let pRange = "24h";
+try { pRange = localStorage.getItem("prange") || "24h"; } catch (e) {}
+if (!CANDLE_MS[pRange]) pRange = "24h";
+let candles = [], candleCount = 0, livePrice = null, liveOn = false, ws = null, wsSymbol = null, drawQueued = false;
+
+function setLive(on) {
+  liveOn = on;
+  const el = $("live");
+  el.querySelector(".dot").style.background = css(on ? "--good" : "--text-3");
+  el.lastElementChild.textContent = on ? "Live" : "Delayed ~10s";
+}
+
+function applyTick(price, t) {
+  if (!candles.length) return;
+  const step = CANDLE_MS[pRange], last = candles[candles.length - 1];
+  if (t >= last[0] + step) {
+    const start = last[0] + Math.floor((t - last[0]) / step) * step;
+    candles.push([start, price, price, price, price, 0]);
+    if (candles.length > candleCount) candles.shift();
+  } else {
+    last[4] = price; last[2] = Math.max(last[2], price); last[3] = Math.min(last[3], price);
+  }
+}
+
+function queueDraw() {
+  if (drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(() => { drawQueued = false; renderPriceChart(); });
+}
+
+async function loadCandles() {
+  try {
+    const res = await fetch("api/candles?range=" + pRange, { cache: "no-store" });
+    const body = await res.json();
+    if (body.error || body.range !== pRange) return;
+    candles = body.candles; candleCount = candles.length;
+    if (livePrice != null && liveOn) applyTick(livePrice, Date.now());
+    if (!liveOn && candles.length) livePrice = null;
+    renderPriceChart();
+  } catch (e) {}
+}
+
+function connectLive(symbol) {
+  if (ws || !symbol) return;
+  wsSymbol = symbol;
+  try { ws = new WebSocket("wss://ws.kraken.com/v2"); } catch (e) { setLive(false); return; }
+  ws.onopen = () => ws.send(JSON.stringify({ method: "subscribe", params: { channel: "ticker", symbol: [symbol] } }));
+  ws.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.channel !== "ticker" || !m.data || !m.data[0]) return;
+    const last = Number(m.data[0].last);
+    if (!isFinite(last)) return;
+    if (!liveOn) setLive(true);
+    livePrice = last;
+    applyTick(last, Date.now());
+    $("price").textContent = usd(last);
+    queueDraw();
+  };
+  ws.onclose = () => { ws = null; setLive(false); setTimeout(() => connectLive(wsSymbol), 5000); };
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+}
+
+function niceTicks(lo, hi, count) {
+  const raw = (hi - lo) / count, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) out.push(v);
+  return out;
+}
+
+function renderPriceChart() {
+  const svg = $("pchart"), tip = $("ptip");
+  const W = svg.clientWidth || 600, H = 320, L = 6, R = 62, T = 10, B = 26;
+  const n = candles.length;
+  const price = n ? candles[n - 1][4] : null;
+  if (data) $("pc-symbol").textContent = data.symbol;
+  if (price != null) {
+    const first = candles[0][1], chg = (price / first - 1) * 100;
+    $("pc-last").textContent = usd(price);
+    $("pc-chg").textContent = (chg >= 0 ? "▲ " : "▼ ") + pct(chg) + " in " + pRange.toUpperCase();
+  }
+  if (n < 2) { svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle">Loading price data...</text>`; return; }
+
+  const orders = data ? data.orders : [];
+  const below = orders.filter((o) => o.side === "buy" && o.price <= price).sort((a, b) => b.price - a.price)[0];
+  const above = orders.filter((o) => o.side === "sell" && o.price >= price).sort((a, b) => a.price - b.price)[0];
+  let lo = Math.min(...candles.map((c) => c[3])), hi = Math.max(...candles.map((c) => c[2]));
+  if (below) lo = Math.min(lo, below.price);   // always show the next order on each side
+  if (above) hi = Math.max(hi, above.price);
+  const pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
+
+  const pw = W - L - R, slot = pw / n, cw = Math.max(1, Math.min(14, slot * 0.68));
+  const xc = (i) => L + (i + 0.5) * slot;
+  const y = (v) => T + (hi - v) / (hi - lo) * (H - T - B);
+  const step = CANDLE_MS[pRange], t0 = candles[0][0];
+  const xt = (t) => L + ((t - t0) / step + 0.5) * slot;
+
+  let s = "";
+  const yTicks = niceTicks(lo, hi, 5), tickDp = yTicks.length > 1 && yTicks[1] - yTicks[0] < 1 ? 2 : 0;
+  for (const v of yTicks) {
+    s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>`;
+    s += `<text x="${W - R + 6}" y="${y(v) + 4}">${usd(v, tickDp)}</text>`;
+  }
+  const ticks = W < 520 ? 2 : 4, longRange = pRange === "7d" || pRange === "30d";
+  for (let k = 0; k <= ticks; k++) {
+    const i = Math.round((n - 1) * k / ticks), t = new Date(candles[i][0]);
+    const lbl = longRange ? t.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : timeLabel(t, false);
+    s += `<text x="${xc(i)}" y="${H - 6}" text-anchor="${k === 0 ? "start" : k === ticks ? "end" : "middle"}">${lbl}</text>`;
+  }
+
+  // the bot's resting orders
+  for (const o of orders) {
+    if (o.price < lo || o.price > hi) continue;
+    s += `<line x1="${L}" x2="${W - R}" y1="${y(o.price)}" y2="${y(o.price)}" stroke="var(--${o.side})" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.85"/>`;
+  }
+  for (const [o, dy] of [[above, -5], [below, 13]]) {
+    if (o) s += `<text x="${L + 4}" y="${y(o.price) + dy}" style="fill:var(--text-2)">next ${o.side} ${usd(o.price)}</text>`;
+  }
+
+  // candles: hollow = up, filled = down
+  for (let i = 0; i < n; i++) {
+    const [, o, h, l, c] = candles[i], up = c >= o, x = xc(i);
+    s += `<line x1="${x}" x2="${x}" y1="${y(h)}" y2="${y(l)}" stroke="var(--text-2)"/>`;
+    const top = y(Math.max(o, c)), ht = Math.max(1, Math.abs(y(o) - y(c)));
+    s += `<rect x="${x - cw / 2}" y="${top}" width="${cw}" height="${ht}" fill="${up ? "var(--surface)" : "var(--text-2)"}" stroke="var(--text-2)" stroke-width="1"/>`;
+  }
+
+  // the bot's trades in this window
+  if (data) for (const tr of data.trades) {
+    const t = new Date(tr.t).getTime();
+    if (t < t0 || t > candles[n - 1][0] + step || tr.price < lo || tr.price > hi) continue;
+    const x = xt(Math.min(t, candles[n - 1][0])), yy = y(tr.price);
+    s += tr.side === "buy"
+      ? `<path d="M${x} ${yy + 3} l5 9 h-10 z" fill="var(--buy)" stroke="var(--surface)" stroke-width="1"><title>bought ${tr.amount.toFixed(4)} @ ${usd(tr.price)}</title></path>`
+      : `<path d="M${x} ${yy - 3} l5 -9 h-10 z" fill="var(--sell)" stroke="var(--surface)" stroke-width="1"><title>sold ${tr.amount.toFixed(4)} @ ${usd(tr.price)}</title></path>`;
+  }
+
+  // current price line + tag on the axis
+  s += `<line x1="${L}" x2="${W - R}" y1="${y(price)}" y2="${y(price)}" stroke="var(--price)" stroke-width="1"/>`;
+  s += `<rect x="${W - R + 2}" y="${y(price) - 9}" width="${R - 4}" height="18" rx="4" fill="var(--price)"/>`;
+  s += `<text x="${W - R + 6}" y="${y(price) + 4}" style="fill:var(--surface);font-weight:600">${usd(price)}</text>`;
+
+  s += `<line id="pxhair" y1="${T}" y2="${H - B}" stroke="var(--text-3)" visibility="hidden"/>`;
+  s += `<rect x="${L}" y="${T}" width="${pw}" height="${H - T - B}" fill="transparent" id="phit"/>`;
+  svg.innerHTML = s;
+
+  const hit = $("phit"), xh = $("pxhair");
+  hit.addEventListener("pointerleave", () => { xh.setAttribute("visibility", "hidden"); tip.style.display = "none"; });
+  hit.addEventListener("pointermove", (ev) => {
+    const r = svg.getBoundingClientRect();
+    const i = Math.max(0, Math.min(n - 1, Math.floor((ev.clientX - r.left - L) / slot)));
+    const [t, o, h, l, c] = candles[i], x = xc(i);
+    xh.setAttribute("x1", x); xh.setAttribute("x2", x); xh.setAttribute("visibility", "visible");
+    tip.innerHTML = `<div class="muted">${timeLabel(new Date(t), true)}</div>` +
+      `O ${usd(o)} &nbsp;H ${usd(h)}<br>L ${usd(l)} &nbsp;C <b>${usd(c)}</b><br>` +
+      `<span class="muted">${(c >= o ? "▲ " : "▼ ") + pct((c / o - 1) * 100)}</span>`;
+    tip.style.display = "block";
+    tip.style.left = (x + 12 + tip.offsetWidth > W ? x - tip.offsetWidth - 12 : x + 12) + "px";
+    tip.style.top = Math.max(ev.clientY - r.top - tip.offsetHeight - 10, 0) + "px";
+  });
+}
+
+document.querySelectorAll("#pc-ranges button").forEach((b) => {
+  b.setAttribute("aria-pressed", String(b.dataset.prange === pRange));
+  b.addEventListener("click", () => {
+    pRange = b.dataset.prange;
+    try { localStorage.setItem("prange", pRange); } catch (e) {}
+    document.querySelectorAll("#pc-ranges button").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+    candles = []; renderPriceChart(); loadCandles();
+  });
+});
+setLive(false);
+$("live").lastElementChild.textContent = "connecting";
+loadCandles();
+setInterval(loadCandles, 10000);
 
 async function refresh() {
   try {
@@ -308,7 +517,7 @@ async function refresh() {
     if (res.ok) {
       const body = await res.json();
       if (body.error) { $("updated").textContent = body.error; }
-      else { data = body; render(); }
+      else { data = body; render(); connectLive(data.symbol); renderPriceChart(); }
     }
   } catch (e) {
     $("updated").textContent = "dashboard unreachable - retrying";

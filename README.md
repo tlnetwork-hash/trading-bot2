@@ -237,6 +237,9 @@ limit from your *current* balance.
 ## Dashboard
 
 A read-only web page that shows:
+- a **live SOL price chart** (1H to 30D candles) with the bot's buy and sell orders drawn as lines
+  and its trades marked. Live prices stream straight from Kraken to your browser. If that stream
+  is blocked, the chart falls back to refreshing every 10 seconds.
 - your equity over time, with your starting amount and the kill-switch level marked
 - the current price and the grid (each buy and sell order, with a "now" line at the current price)
 - what the bot is holding
