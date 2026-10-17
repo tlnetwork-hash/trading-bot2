@@ -105,3 +105,38 @@ def test_candles_endpoint(make_bot, cfg):
         assert body["timeframe"] == "1h" and len(body["candles"]) == 168
     finally:
         server.shutdown()
+
+
+def test_watchdog_alerts_once_and_on_recovery(make_bot, cfg):
+    import os
+    from bot.dashboard import Watchdog
+    from tests.conftest import FakeNotifier
+    bot, _, _ = make_bot()
+    bot.tick()
+    mtime = os.path.getmtime(cfg.state_path)
+    clock = [mtime + 60]
+    notifier = FakeNotifier()
+    dog = Watchdog(cfg, notifier, clock=lambda: clock[0])
+    dog.check()
+    assert notifier.sent == []
+    clock[0] = mtime + 400
+    dog.check(); dog.check()
+    assert notifier.subjects() == ["Bot stopped updating"]
+    assert notifier.priorities["Bot stopped updating"] == "urgent"
+    bot.tick()  # bot saves again
+    clock[0] = os.path.getmtime(cfg.state_path) + 5
+    dog.check()
+    assert notifier.subjects() == ["Bot stopped updating", "Bot is running again"]
+
+
+def test_trade_alerts_are_quiet_and_kill_switch_is_urgent(make_bot):
+    bot, kraken, notifier = make_bot()
+    bot.tick()
+    kraken.px = 135
+    bot.tick()
+    kraken.px = 100
+    bot.tick()
+    p = notifier.priorities
+    assert any(v == "low" for k, v in p.items() if k.startswith("BUY filled"))
+    assert p["Bot paused"] == "high"
+    assert p["KILL SWITCH - bot halted"] == "urgent"

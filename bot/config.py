@@ -79,7 +79,13 @@ class Config:
     email: EmailSecrets = field(default_factory=EmailSecrets)
     kraken_api_key: str = ""
     kraken_api_secret: str = ""
+    ntfy_topic: str = ""
+    ntfy_server: str = "https://ntfy.sh"
     data_dir: Path = Path("data")
+
+    @property
+    def ntfy_url(self):
+        return f"{self.ntfy_server.rstrip('/')}/{self.ntfy_topic}" if self.ntfy_topic else ""
 
     @property
     def state_path(self):
@@ -154,6 +160,8 @@ def load_config(path="config.yaml", env=None):
         ),
         kraken_api_key=env.get("KRAKEN_API_KEY", "").strip(),
         kraken_api_secret=env.get("KRAKEN_API_SECRET", "").strip(),
+        ntfy_topic=env.get("NTFY_TOPIC", "").strip(),
+        ntfy_server=env.get("NTFY_SERVER", "").strip() or "https://ntfy.sh",
         data_dir=Path(env.get("BOT_DATA_DIR", "data")),
     )
     cfg.validate()
