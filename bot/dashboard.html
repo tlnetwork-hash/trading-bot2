@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Bot</title>
+<style>
+:root {
+  --bg: #f4f4f2; --surface: #fcfcfb; --border: #e3e2de;
+  --text: #0b0b0b; --text-2: #52514e; --text-3: #7a7974;
+  --series: #2a78d6; --buy: #2a78d6; --sell: #eb6834;
+  --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+  --grid: #ecebe7; --price: #0b0b0b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111110; --surface: #1a1a19; --border: #2c2c2a;
+    --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
+    --series: #3987e5; --buy: #3987e5; --sell: #d95926;
+    --grid: #262624; --price: #f0efec;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 16px; }
+h1 { font-size: 20px; margin: 0; font-weight: 650; }
+.badge { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-2); }
+.status { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; }
+.updated { margin-left: auto; color: var(--text-3); font-size: 12px; }
+.banner { border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; border: 1px solid var(--border);
+  background: var(--surface); border-left: 4px solid var(--warning); }
+.banner.critical { border-left-color: var(--critical); }
+.banner code { font-size: 12px; background: var(--grid); padding: 1px 5px; border-radius: 4px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.tile .label { color: var(--text-2); font-size: 12px; }
+.tile .value { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .sub { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.card h2 { font-size: 14px; margin: 0 0 10px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.ranges { margin-left: auto; display: flex; gap: 4px; }
+.ranges button { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border); background: transparent; color: var(--text-2); }
+.ranges button[aria-pressed="true"] { background: var(--text); color: var(--surface); border-color: var(--text); }
+.chart-wrap { position: relative; }
+svg { display: block; width: 100%; overflow: visible; }
+svg text { fill: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 9px; font-size: 12px; white-space: nowrap; display: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,.12); font-variant-numeric: tabular-nums; }
+.empty { color: var(--text-3); padding: 30px 0; text-align: center; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+@media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th { text-align: left; font-weight: 500; color: var(--text-3); font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+td { padding: 5px 6px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+.scroll { overflow-x: auto; }
+@media (max-width: 520px) { .hide-sm { display: none; } .tile .value { font-size: 20px; } }
+td.num, th.num { text-align: right; }
+.side { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; }
+.swatch { width: 8px; height: 8px; border-radius: 2px; }
+.ladder td { padding: 3px 6px; }
+.ladder tr.empty-level td { color: var(--text-3); }
+.ladder tr.price-row td { border-bottom: none; padding: 2px 6px; }
+.price-line { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 12px; }
+.price-line::before, .price-line::after { content: ""; flex: 1; border-top: 2px dashed var(--price); }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-variant-numeric: tabular-nums; }
+dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
+.trades-card { margin-top: 14px; overflow-x: auto; }
+.price-card { margin-bottom: 14px; }
+.price-card h2 { flex-wrap: wrap; }
+.pc-last { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.pc-chg { font-size: 12px; color: var(--text-2); font-weight: 500; font-variant-numeric: tabular-nums; }
+.live { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--text-2); }
+.live .dot { width: 7px; height: 7px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--text-2); margin-top: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend svg { width: auto; display: inline; }
+.equity-card { margin-top: 0; }
+.muted { color: var(--text-3); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="title">Grid Bot</h1>
+    <span class="badge" id="mode">-</span>
+    <span class="badge status" id="status"><span class="dot"></span><span>-</span></span>
+    <span class="updated" id="updated">loading...</span>
+  </header>
+  <div id="banners"></div>
+
+  <section class="tiles">
+    <div class="card tile"><div class="label">Equity</div><div class="value" id="equity">-</div><div class="sub" id="equity-sub"></div></div>
+    <div class="card tile"><div class="label" id="price-label">Price</div><div class="value" id="price">-</div><div class="sub" id="price-sub"></div></div>
+    <div class="card tile"><div class="label">Grid profit</div><div class="value" id="profit">-</div><div class="sub" id="profit-sub"></div></div>
+    <div class="card tile"><div class="label">Fees paid</div><div class="value" id="fees">-</div><div class="sub" id="fees-sub"></div></div>
+    <div class="card tile"><div class="label">Kill switch</div><div class="value" id="kill">-</div><div class="sub" id="kill-sub"></div></div>
+  </section>
+
+  <section class="card price-card">
+    <h2><span id="pc-symbol">Price</span> <span class="pc-last" id="pc-last"></span> <span class="pc-chg" id="pc-chg"></span>
+      <span class="live" id="live" title="Live prices stream straight from Kraken to your browser"><span class="dot"></span><span>connecting</span></span>
+      <span class="ranges" role="group" aria-label="Price chart range" id="pc-ranges">
+        <button data-prange="1h">1H</button><button data-prange="6h">6H</button><button data-prange="24h">24H</button><button data-prange="7d">7D</button><button data-prange="30d">30D</button>
+      </span>
+    </h2>
+    <div class="chart-wrap">
+      <svg id="pchart" height="320" role="img" aria-label="Price candles with the bot's orders and trades"></svg>
+      <div class="tip" id="ptip"></div>
+    </div>
+    <div class="legend">
+      <span><svg width="10" height="14"><line x1="5" x2="5" y1="0" y2="14" stroke="var(--text-2)"/><rect x="1" y="3" width="8" height="8" fill="var(--surface)" stroke="var(--text-2)"/></svg>up candle</span>
+      <span><svg width="10" height="14"><line x1="5" x2="5" y1="0" y2="14" stroke="var(--text-2)"/><rect x="1" y="3" width="8" height="8" fill="var(--text-2)"/></svg>down candle</span>
+      <span><svg width="22" height="4"><line x1="0" x2="22" y1="2" y2="2" stroke="var(--buy)" stroke-width="1.5" stroke-dasharray="4 3"/></svg>bot buy order</span>
+      <span><svg width="22" height="4"><line x1="0" x2="22" y1="2" y2="2" stroke="var(--sell)" stroke-width="1.5" stroke-dasharray="4 3"/></svg>bot sell order</span>
+      <span><svg width="10" height="10"><path d="M5 1 L9.5 9 L0.5 9 Z" fill="var(--buy)"/></svg>bot bought</span>
+      <span><svg width="10" height="10"><path d="M0.5 1 L9.5 1 L5 9 Z" fill="var(--sell)"/></svg>bot sold</span>
+    </div>
+  </section>
+
+  <section class="card equity-card">
+    <h2>Equity
+      <span class="ranges" role="group" aria-label="Time range">
+        <button data-range="24" aria-pressed="false">24h</button>
+        <button data-range="168" aria-pressed="true">7d</button>
+        <button data-range="0" aria-pressed="false">All</button>
+      </span>
+    </h2>
+    <div class="chart-wrap" id="chart-wrap">
+      <svg id="chart" height="240" role="img" aria-label="Equity over time"></svg>
+      <div class="tip" id="tip"></div>
+    </div>
+  </section>
+
+  <div class="cols">
+    <section class="card">
+      <h2>Grid <span class="muted" id="grid-sub" style="font-weight:400"></span></h2>
+      <div class="scroll"><table class="ladder"><thead><tr><th>Level</th><th class="num">Price</th><th>Order</th><th class="num">Amount</th></tr></thead>
+        <tbody id="ladder"></tbody></table></div>
+    </section>
+    <section class="card">
+      <h2>Holdings &amp; stats</h2>
+      <dl id="stats"></dl>
+    </section>
+  </div>
+
+  <section class="card trades-card">
+    <h2>Recent trades</h2>
+    <table><thead><tr><th>Time</th><th>Side</th><th class="num">Amount</th><th class="num">Price</th><th class="num hide-sm">Fee</th><th class="num">Profit</th><th class="hide-sm">Type</th></tr></thead>
+      <tbody id="trades"></tbody></table>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const usd = (v, d = 2) => v == null ? "-" : (v < 0 ? "-$" : "$") + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+const pct = (v) => (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const STATUS = { running: ["Running", "--good"], paused: ["Paused", "--warning"], halted: ["Halted", "--critical"] };
+let data = null;
+let rangeHours = 168;
+try { rangeHours = Number(localStorage.getItem("range") ?? 168); } catch (e) {}
+
+function timeLabel(iso, withDate) {
+  const d = new Date(iso);
+  return withDate ? d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+                  : d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function render() {
+  const d = data;
+  const base = d.symbol.split("/")[0];
+  $("title").textContent = d.symbol + " Grid Bot";
+  document.title = d.symbol + " grid - " + usd(d.equity);
+  $("mode").textContent = d.mode.toUpperCase();
+  const [label, color] = STATUS[d.status] || [d.status, "--text-3"];
+  $("status").querySelector(".dot").style.background = css(color);
+  $("status").lastElementChild.textContent = label;
+
+  const age = d.updated_seconds_ago;
+  $("updated").textContent = age == null ? "no data yet" : "updated " + (age < 90 ? Math.round(age) + "s" : Math.round(age / 60) + "m") + " ago";
+
+  let banners = "";
+  if (age != null && age > 180)
+    banners += `<div class="banner critical"><b>The bot hasn't saved anything in ${Math.round(age / 60)} minutes.</b> It may be stopped. Check with <code>docker compose ps</code>.</div>`;
+  if (d.status === "paused")
+    banners += `<div class="banner"><b>Paused:</b> ${esc(d.status_reason)}. Resume with <code>docker compose exec bot python -m bot resume</code></div>`;
+  if (d.status === "halted")
+    banners += `<div class="banner critical"><b>Kill switch triggered:</b> ${esc(d.status_reason)}</div>`;
+  $("banners").innerHTML = banners;
+
+  const change = (d.equity / d.start_equity - 1) * 100;
+  $("equity").textContent = usd(d.equity);
+  $("equity-sub").textContent = pct(change) + " since start (" + usd(d.start_equity) + ")";
+  $("price-label").textContent = d.symbol + " price";
+  $("price").textContent = usd(livePrice ?? d.price);
+  $("price-sub").textContent = d.grid ? "grid " + usd(d.grid.lower) + " - " + usd(d.grid.upper) : "no grid";
+  $("profit").textContent = usd(d.stats.grid_profit);
+  $("profit-sub").textContent = d.stats.round_trips + " round trips, " + d.stats.buys + " buys / " + d.stats.sells + " sells";
+  $("fees").textContent = usd(d.stats.fees);
+  $("fees-sub").textContent = "maker " + d.fees.maker_pct + "% / taker " + d.fees.taker_pct + "%";
+  $("kill").textContent = usd(d.kill_floor);
+  $("kill-sub").textContent = d.status === "halted" ? "triggered" : pct((d.kill_floor / d.equity - 1) * 100) + " from here";
+
+  renderLadder(base);
+  renderStats(base);
+  renderTrades(base);
+  renderChart();
+}
+
+function sideCell(side) {
+  return `<span class="side"><span class="swatch" style="background:var(--${side})"></span>${side.toUpperCase()}</span>`;
+}
+
+function renderLadder(base) {
+  const g = data.grid;
+  if (!g) { $("ladder").innerHTML = `<tr><td colspan="4" class="empty">No grid right now</td></tr>`; $("grid-sub").textContent = ""; return; }
+  $("grid-sub").textContent = `${g.levels.length} levels, ${g.spacing_pct.toFixed(2)}% apart`;
+  const byLevel = Object.fromEntries(data.orders.map((o) => [o.index, o]));
+  let rows = "", pricePlaced = false;
+  for (let i = g.levels.length - 1; i >= 0; i--) {
+    if (!pricePlaced && data.price >= g.levels[i]) {
+      rows += `<tr class="price-row"><td colspan="4"><div class="price-line">now ${usd(data.price)}</div></td></tr>`;
+      pricePlaced = true;
+    }
+    const o = byLevel[i];
+    rows += o
+      ? `<tr><td>${i}</td><td class="num">${usd(o.price)}</td><td>${sideCell(o.side)}</td><td class="num">${o.amount.toFixed(4)} ${base}</td></tr>`
+      : `<tr class="empty-level"><td>${i}</td><td class="num">${usd(g.levels[i])}</td><td>empty</td><td></td></tr>`;
+  }
+  if (!pricePlaced) rows += `<tr class="price-row"><td colspan="4"><div class="price-line">now ${usd(data.price)}</div></td></tr>`;
+  $("ladder").innerHTML = rows;
+}
+
+function renderStats(base) {
+  const d = data, b = d.balances;
+  const items = [
+    ["USD", usd(b.quote)],
+    [base, b.base.toFixed(6) + " (" + usd(b.base * d.price) + ")"],
+    ["Started", usd(d.start_equity)],
+    ["Change", usd(d.equity - d.start_equity) + " (" + pct((d.equity / d.start_equity - 1) * 100) + ")"],
+    ["Open orders", d.orders.length],
+    ["Grid built", d.grid ? timeLabel(d.grid.created_at, true) + " at " + usd(d.grid.created_price) : "-"],
+    ["Breakout action", d.breakout_action],
+    ["Running since", timeLabel(d.created_at, true)],
+  ];
+  $("stats").innerHTML = items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+}
+
+function renderTrades(base) {
+  const t = data.trades.slice().reverse();
+  $("trades").innerHTML = t.length ? t.map((r) => `<tr>
+      <td>${timeLabel(r.t, true)}</td><td>${sideCell(r.side)}</td>
+      <td class="num">${r.amount.toFixed(4)} ${base}</td><td class="num">${usd(r.price)}</td>
+      <td class="num hide-sm">${usd(r.fee, 4)}</td><td class="num">${r.profit == null ? "" : usd(r.profit, 4)}</td>
+      <td class="muted hide-sm">${esc(r.kind)}</td></tr>`).join("")
+    : `<tr><td colspan="7" class="empty">No trades yet</td></tr>`;
+}
+
+function renderChart() {
+  const svg = $("chart"), tip = $("tip");
+  const cutoff = rangeHours ? Date.now() - rangeHours * 3600e3 : 0;
+  const pts = data.history.map((h) => ({ t: new Date(h.t).getTime(), v: h.equity, p: h.price }))
+                          .filter((h) => h.t >= cutoff);
+  const W = svg.clientWidth || 600, H = 240, L = 56, R = 12, T = 10, B = 26;
+  if (pts.length < 2) {
+    svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle">Collecting data - a point is saved every 5 minutes</text>`;
+    return;
+  }
+  const refs = [data.start_equity, data.kill_floor];
+  let lo = Math.min(...pts.map((p) => p.v), ...refs), hi = Math.max(...pts.map((p) => p.v), ...refs);
+  const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  const x = (t) => L + (t - t0) / (t1 - t0 || 1) * (W - L - R);
+  const y = (v) => T + (hi - v) / (hi - lo) * (H - T - B);
+
+  let s = "";
+  for (let i = 0; i <= 4; i++) {
+    const v = lo + (hi - lo) * i / 4;
+    s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>`;
+    s += `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${usd(v, 0)}</text>`;
+  }
+  const spanH = (t1 - t0) / 3600e3;
+  const ticks = W < 520 ? 2 : 4;  // fewer date labels on narrow screens so they don't overlap
+  for (let i = 0; i <= ticks; i++) {
+    const t = t0 + (t1 - t0) * i / ticks;
+    s += `<text x="${x(t)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === ticks ? "end" : "middle"}">${W < 520 && spanH > 30 ? new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : timeLabel(new Date(t), spanH > 30)}</text>`;
+  }
+  s += `<line x1="${L}" x2="${W - R}" y1="${y(data.start_equity)}" y2="${y(data.start_equity)}" stroke="var(--text-3)" stroke-dasharray="4 4"/>`;
+  s += `<text x="${W - R}" y="${y(data.start_equity) - 5}" text-anchor="end">start ${usd(data.start_equity, 0)}</text>`;
+  s += `<line x1="${L}" x2="${W - R}" y1="${y(data.kill_floor)}" y2="${y(data.kill_floor)}" stroke="var(--critical)" stroke-dasharray="4 4"/>`;
+  s += `<text x="${W - R}" y="${y(data.kill_floor) - 5}" text-anchor="end">kill switch ${usd(data.kill_floor, 0)}</text>`;
+  const path = pts.map((p, i) => (i ? "L" : "M") + x(p.t).toFixed(1) + "," + y(p.v).toFixed(1)).join("");
+  s += `<path d="${path}" fill="none" stroke="var(--series)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  s += `<line id="xhair" y1="${T}" y2="${H - B}" stroke="var(--text-3)" visibility="hidden"/>`;
+  s += `<circle id="hdot" r="4.5" fill="var(--series)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>`;
+  s += `<rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" id="hit"/>`;
+  svg.innerHTML = s;
+
+  const hit = $("hit"), xh = $("xhair"), dot = $("hdot");
+  const hide = () => { xh.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); tip.style.display = "none"; };
+  hit.addEventListener("pointerleave", hide);
+  hit.addEventListener("pointermove", (ev) => {
+    const r = svg.getBoundingClientRect();
+    const mx = ev.clientX - r.left;
+    const t = t0 + (mx - L) / (W - L - R) * (t1 - t0);
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(p.t - t) < Math.abs(best.t - t)) best = p;
+    const px = x(best.t), py = y(best.v);
+    xh.setAttribute("x1", px); xh.setAttribute("x2", px); xh.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", px); dot.setAttribute("cy", py); dot.setAttribute("visibility", "visible");
+    tip.innerHTML = `<div class="muted">${timeLabel(new Date(best.t), true)}</div><b>${usd(best.v)}</b> equity<br>${usd(best.p)} ${esc(data.symbol)}`;
+    tip.style.display = "block";
+    const left = Math.min(Math.max(px + 12, 0), W - tip.offsetWidth);
+    tip.style.left = (px + 12 + tip.offsetWidth > W ? px - tip.offsetWidth - 12 : left) + "px";
+    tip.style.top = Math.max(py - tip.offsetHeight - 10, 0) + "px";
+  });
+}
+
+document.querySelectorAll(".ranges button[data-range]").forEach((b) => {
+  b.setAttribute("aria-pressed", String(Number(b.dataset.range) === rangeHours));
+  b.addEventListener("click", () => {
+    rangeHours = Number(b.dataset.range);
+    try { localStorage.setItem("range", rangeHours); } catch (e) {}
+    document.querySelectorAll(".ranges button[data-range]").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+    if (data) renderChart();
+  });
+});
+window.addEventListener("resize", () => { if (data) renderChart(); renderPriceChart(); });
+
+// ---------------------------------------------------------------- price chart
+const CANDLE_MS = { "1h": 60e3, "6h": 300e3, "24h": 900e3, "7d": 3600e3, "30d": 14400e3 };
+let pRange = "24h";
+try { pRange = localStorage.getItem("prange") || "24h"; } catch (e) {}
+if (!CANDLE_MS[pRange]) pRange = "24h";
+let candles = [], candleCount = 0, livePrice = null, liveOn = false, ws = null, wsSymbol = null, drawQueued = false;
+
+function setLive(on) {
+  liveOn = on;
+  const el = $("live");
+  el.querySelector(".dot").style.background = css(on ? "--good" : "--text-3");
+  el.lastElementChild.textContent = on ? "Live" : "Delayed ~10s";
+}
+
+function applyTick(price, t) {
+  if (!candles.length) return;
+  const step = CANDLE_MS[pRange], last = candles[candles.length - 1];
+  if (t >= last[0] + step) {
+    const start = last[0] + Math.floor((t - last[0]) / step) * step;
+    candles.push([start, price, price, price, price, 0]);
+    if (candles.length > candleCount) candles.shift();
+  } else {
+    last[4] = price; last[2] = Math.max(last[2], price); last[3] = Math.min(last[3], price);
+  }
+}
+
+function queueDraw() {
+  if (drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(() => { drawQueued = false; renderPriceChart(); });
+}
+
+async function loadCandles() {
+  try {
+    const res = await fetch("api/candles?range=" + pRange, { cache: "no-store" });
+    const body = await res.json();
+    if (body.error || body.range !== pRange) return;
+    candles = body.candles; candleCount = candles.length;
+    if (livePrice != null && liveOn) applyTick(livePrice, Date.now());
+    if (!liveOn && candles.length) livePrice = null;
+    renderPriceChart();
+  } catch (e) {}
+}
+
+function connectLive(symbol) {
+  if (ws || !symbol) return;
+  wsSymbol = symbol;
+  try { ws = new WebSocket("wss://ws.kraken.com/v2"); } catch (e) { setLive(false); return; }
+  ws.onopen = () => ws.send(JSON.stringify({ method: "subscribe", params: { channel: "ticker", symbol: [symbol] } }));
+  ws.onmessage = (ev) => {
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.channel !== "ticker" || !m.data || !m.data[0]) return;
+    const last = Number(m.data[0].last);
+    if (!isFinite(last)) return;
+    if (!liveOn) setLive(true);
+    livePrice = last;
+    applyTick(last, Date.now());
+    $("price").textContent = usd(last);
+    queueDraw();
+  };
+  ws.onclose = () => { ws = null; setLive(false); setTimeout(() => connectLive(wsSymbol), 5000); };
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+}
+
+function niceTicks(lo, hi, count) {
+  const raw = (hi - lo) / count, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) out.push(v);
+  return out;
+}
+
+function renderPriceChart() {
+  const svg = $("pchart"), tip = $("ptip");
+  const W = svg.clientWidth || 600, H = 320, L = 6, R = 62, T = 10, B = 26;
+  const n = candles.length;
+  const price = n ? candles[n - 1][4] : null;
+  if (data) $("pc-symbol").textContent = data.symbol;
+  if (price != null) {
+    const first = candles[0][1], chg = (price / first - 1) * 100;
+    $("pc-last").textContent = usd(price);
+    $("pc-chg").textContent = (chg >= 0 ? "▲ " : "▼ ") + pct(chg) + " in " + pRange.toUpperCase();
+  }
+  if (n < 2) { svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle">Loading price data...</text>`; return; }
+
+  const orders = data ? data.orders : [];
+  const below = orders.filter((o) => o.side === "buy" && o.price <= price).sort((a, b) => b.price - a.price)[0];
+  const above = orders.filter((o) => o.side === "sell" && o.price >= price).sort((a, b) => a.price - b.price)[0];
+  let lo = Math.min(...candles.map((c) => c[3])), hi = Math.max(...candles.map((c) => c[2]));
+  if (below) lo = Math.min(lo, below.price);   // always show the next order on each side
+  if (above) hi = Math.max(hi, above.price);
+  const pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
+
+  const pw = W - L - R, slot = pw / n, cw = Math.max(1, Math.min(14, slot * 0.68));
+  const xc = (i) => L + (i + 0.5) * slot;
+  const y = (v) => T + (hi - v) / (hi - lo) * (H - T - B);
+  const step = CANDLE_MS[pRange], t0 = candles[0][0];
+  const xt = (t) => L + ((t - t0) / step + 0.5) * slot;
+
+  let s = "";
+  const yTicks = niceTicks(lo, hi, 5), tickDp = yTicks.length > 1 && yTicks[1] - yTicks[0] < 1 ? 2 : 0;
+  for (const v of yTicks) {
+    s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>`;
+    s += `<text x="${W - R + 6}" y="${y(v) + 4}">${usd(v, tickDp)}</text>`;
+  }
+  const ticks = W < 520 ? 2 : 4, longRange = pRange === "7d" || pRange === "30d";
+  for (let k = 0; k <= ticks; k++) {
+    const i = Math.round((n - 1) * k / ticks), t = new Date(candles[i][0]);
+    const lbl = longRange ? t.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : timeLabel(t, false);
+    s += `<text x="${xc(i)}" y="${H - 6}" text-anchor="${k === 0 ? "start" : k === ticks ? "end" : "middle"}">${lbl}</text>`;
+  }
+
+  // the bot's resting orders
+  for (const o of orders) {
+    if (o.price < lo || o.price > hi) continue;
+    s += `<line x1="${L}" x2="${W - R}" y1="${y(o.price)}" y2="${y(o.price)}" stroke="var(--${o.side})" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.85"/>`;
+  }
+  for (const [o, dy] of [[above, -5], [below, 13]]) {
+    if (o) s += `<text x="${L + 4}" y="${y(o.price) + dy}" style="fill:var(--text-2)">next ${o.side} ${usd(o.price)}</text>`;
+  }
+
+  // candles: hollow = up, filled = down
+  for (let i = 0; i < n; i++) {
+    const [, o, h, l, c] = candles[i], up = c >= o, x = xc(i);
+    s += `<line x1="${x}" x2="${x}" y1="${y(h)}" y2="${y(l)}" stroke="var(--text-2)"/>`;
+    const top = y(Math.max(o, c)), ht = Math.max(1, Math.abs(y(o) - y(c)));
+    s += `<rect x="${x - cw / 2}" y="${top}" width="${cw}" height="${ht}" fill="${up ? "var(--surface)" : "var(--text-2)"}" stroke="var(--text-2)" stroke-width="1"/>`;
+  }
+
+  // the bot's trades in this window
+  if (data) for (const tr of data.trades) {
+    const t = new Date(tr.t).getTime();
+    if (t < t0 || t > candles[n - 1][0] + step || tr.price < lo || tr.price > hi) continue;
+    const x = xt(Math.min(t, candles[n - 1][0])), yy = y(tr.price);
+    s += tr.side === "buy"
+      ? `<path d="M${x} ${yy + 3} l5 9 h-10 z" fill="var(--buy)" stroke="var(--surface)" stroke-width="1"><title>bought ${tr.amount.toFixed(4)} @ ${usd(tr.price)}</title></path>`
+      : `<path d="M${x} ${yy - 3} l5 -9 h-10 z" fill="var(--sell)" stroke="var(--surface)" stroke-width="1"><title>sold ${tr.amount.toFixed(4)} @ ${usd(tr.price)}</title></path>`;
+  }
+
+  // current price line + tag on the axis
+  s += `<line x1="${L}" x2="${W - R}" y1="${y(price)}" y2="${y(price)}" stroke="var(--price)" stroke-width="1"/>`;
+  s += `<rect x="${W - R + 2}" y="${y(price) - 9}" width="${R - 4}" height="18" rx="4" fill="var(--price)"/>`;
+  s += `<text x="${W - R + 6}" y="${y(price) + 4}" style="fill:var(--surface);font-weight:600">${usd(price)}</text>`;
+
+  s += `<line id="pxhair" y1="${T}" y2="${H - B}" stroke="var(--text-3)" visibility="hidden"/>`;
+  s += `<rect x="${L}" y="${T}" width="${pw}" height="${H - T - B}" fill="transparent" id="phit"/>`;
+  svg.innerHTML = s;
+
+  const hit = $("phit"), xh = $("pxhair");
+  hit.addEventListener("pointerleave", () => { xh.setAttribute("visibility", "hidden"); tip.style.display = "none"; });
+  hit.addEventListener("pointermove", (ev) => {
+    const r = svg.getBoundingClientRect();
+    const i = Math.max(0, Math.min(n - 1, Math.floor((ev.clientX - r.left - L) / slot)));
+    const [t, o, h, l, c] = candles[i], x = xc(i);
+    xh.setAttribute("x1", x); xh.setAttribute("x2", x); xh.setAttribute("visibility", "visible");
+    tip.innerHTML = `<div class="muted">${timeLabel(new Date(t), true)}</div>` +
+      `O ${usd(o)} &nbsp;H ${usd(h)}<br>L ${usd(l)} &nbsp;C <b>${usd(c)}</b><br>` +
+      `<span class="muted">${(c >= o ? "▲ " : "▼ ") + pct((c / o - 1) * 100)}</span>`;
+    tip.style.display = "block";
+    tip.style.left = (x + 12 + tip.offsetWidth > W ? x - tip.offsetWidth - 12 : x + 12) + "px";
+    tip.style.top = Math.max(ev.clientY - r.top - tip.offsetHeight - 10, 0) + "px";
+  });
+}
+
+document.querySelectorAll("#pc-ranges button").forEach((b) => {
+  b.setAttribute("aria-pressed", String(b.dataset.prange === pRange));
+  b.addEventListener("click", () => {
+    pRange = b.dataset.prange;
+    try { localStorage.setItem("prange", pRange); } catch (e) {}
+    document.querySelectorAll("#pc-ranges button").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+    candles = []; renderPriceChart(); loadCandles();
+  });
+});
+setLive(false);
+$("live").lastElementChild.textContent = "connecting";
+loadCandles();
+setInterval(loadCandles, 10000);
+
+async function refresh() {
+  try {
+    const res = await fetch("api/state", { cache: "no-store" });
+    if (res.ok) {
+      const body = await res.json();
+      if (body.error) { $("updated").textContent = body.error; }
+      else { data = body; render(); connectLive(data.symbol); renderPriceChart(); }
+    }
+  } catch (e) {
+    $("updated").textContent = "dashboard unreachable - retrying";
+  }
+}
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

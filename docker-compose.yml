@@ -1,0 +1,33 @@
+services:
+  bot:
+    build: .
+    image: grid-bot
+    container_name: grid-bot
+    restart: unless-stopped        # restart on crashes and after server reboots
+    env_file: .env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data           # saved state and log files live here
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Read-only web page showing the bot's progress. It only reads ./data.
+  # By default it is reachable only from the server itself. To open it from
+  # your devices over Tailscale, set DASHBOARD_BIND to the server's Tailscale
+  # IP in .env (see README "Dashboard").
+  dashboard:
+    image: grid-bot
+    container_name: grid-bot-dashboard
+    command: ["python", "-m", "bot", "dashboard"]
+    restart: unless-stopped
+    depends_on: [bot]
+    env_file: .env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data:ro
+    ports:
+      - "${DASHBOARD_BIND:-127.0.0.1}:8080:8080"
+    logging: *logging
