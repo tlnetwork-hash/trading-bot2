@@ -46,6 +46,10 @@ behaves, you change one line to trade for real.
      gain. If it does, it sells its SOL and pauses with the profit in cash. A grid sells as
      the price rises, so its value moves much less than SOL's price; expect this to arm only
      after the bot has built up grid profit.
+   - **Automatic restart:** after either of those sales, the bot buys back in by itself once
+     SOL has stopped falling (bounced 2% off its low), is no higher than where it sold, and an
+     hour has passed. If SOL shoots straight back up instead, it stays paused rather than buy
+     back higher; run `resume` to restart it yourself. `pause` cancels a pending restart.
    - **Kill switch:** if the bot's money drops **10%** below where it started, it cancels
      everything, stops for good, and emails you. Your coins are not sold.
 5. **It remembers.** Everything is saved to disk, so if the server restarts, the bot picks
@@ -402,6 +406,9 @@ All settings live in `config.yaml`, and each one has a comment explaining it. Ed
 | `risk.sell_on_breakout_down` | `true` | If the price falls out of the bottom of the grid, sell the bot's SOL and pause, instead of holding it while it keeps falling |
 | `risk.profit_lock_start_pct` | `2.0` | Profit lock arms once the bot is up this much since it started (or since the last `resume`). `0` turns it off |
 | `risk.profit_lock_keep_pct` | `50` | Once armed, sell everything and pause if the gain shrinks to this % of the best gain so far. Up 4% at best means it sells at +2%. The stop only moves up |
+| `risk.auto_restart` | `true` | After a stop-loss or profit-lock sale, start trading again by itself at a good spot to buy (below) |
+| `risk.restart_bounce_pct` | `2.0` | ...once SOL has bounced this much off its lowest price since the sale, and is no higher than where the bot sold |
+| `risk.restart_wait_minutes` | `60` | ...and at least this long after the sale |
 | `grid.min_spacing_pct` | `1.0` | Gap between grid lines. Bigger means fewer trades with more profit each |
 | `alerts.email_on_every_fill` | `true` | Set to `false` if fill emails get to be too many |
 | `alerts.daily_summary_hour_utc` | `13` | Hour the daily summary is sent (UTC; 13 = 9am New York in summer) |

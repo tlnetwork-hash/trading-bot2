@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .config import EXCHANGES
 from .state import load_state, read_jsonl_tail
-from .trader import profit_lock_floor
+from .trader import profit_lock_floor, rebuy_after, rebuy_target
 
 log = logging.getLogger(__name__)
 
@@ -114,6 +114,7 @@ def snapshot(cfg):
         "breakout_action": cfg.risk.breakout_action,
         "sell_on_breakout_down": cfg.risk.sell_on_breakout_down,
         "profit_lock": _profit_lock(cfg, state),
+        "rebuy": _rebuy(cfg, state),
         "fees": {"maker_pct": cfg.fees.maker_pct, "taker_pct": cfg.fees.taker_pct},
         "balances": b,
         "stats": state["stats"],
@@ -137,6 +138,18 @@ def _profit_lock(cfg, state):
         "arm_at": lock["base"] * (1 + risk.profit_lock_start_pct / 100),
         "floor": profit_lock_floor(risk, lock),
         "keep_pct": risk.profit_lock_keep_pct,
+    }
+
+
+def _rebuy(cfg, state):
+    rebuy = state.get("rebuy")
+    if not rebuy or state["status"] != "paused":
+        return None
+    return {
+        "low": rebuy["low"],
+        "sold_price": rebuy["sold_price"],
+        "target": rebuy_target(cfg.risk, rebuy),
+        "after": rebuy_after(cfg.risk, rebuy).isoformat(timespec="seconds"),
     }
 
 
