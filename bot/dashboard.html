@@ -177,7 +177,7 @@ function render() {
   $("title").textContent = d.exchange_name + " " + d.symbol;
   document.title = d.exchange_name + " grid - " + usd(d.equity);
   renderSwitch(d);
-  $("live").title = "Live prices stream straight from " + d.exchange_name + " to your browser";
+  $("live").title = "Live prices stream straight from " + d.chart_exchange_name + " to your browser";
   $("mode").textContent = d.mode.toUpperCase();
   const [label, color] = STATUS[d.status] || [d.status, "--text-3"];
   $("status").querySelector(".dot").style.background = css(color);
@@ -199,7 +199,7 @@ function render() {
   $("equity").textContent = usd(d.equity);
   $("equity-sub").textContent = pct(change) + " since start (" + usd(d.start_equity) + ")";
   $("price-label").textContent = d.symbol + " price";
-  $("price").textContent = usd(livePrice ?? d.price);
+  $("price").textContent = usd(ownLive() ? livePrice ?? d.price : d.price);
   $("price-sub").textContent = d.grid ? "grid " + usd(d.grid.lower) + " - " + usd(d.grid.upper) : "no grid";
   $("profit").textContent = usd(d.stats.grid_profit);
   $("profit-sub").textContent = d.stats.round_trips + " round trips, " + d.stats.buys + " buys / " + d.stats.sells + " sells";
@@ -389,16 +389,23 @@ async function loadCandles() {
   } catch (e) {}
 }
 
-// Each exchange's public trade stream, reduced to "the last traded price".
+// True when the chart and live stream come from the bot's own exchange. If not
+// (a thinly traded exchange charted from a busier one), the price tile keeps
+// showing the bot's own exchange price.
+function ownLive() { return !data || data.chart_exchange === data.exchange; }
+
+// Each exchange's public price stream, reduced to one number.
 const FEEDS = {
   kraken: (symbol) => ({
     url: "wss://ws.kraken.com/v2",
     subscribe: { method: "subscribe", params: { channel: "ticker", symbol: [symbol] } },
     price: (m) => (m.channel === "ticker" && m.data && m.data[0] ? Number(m.data[0].last) : NaN),
   }),
+  // Binance.US trades too rarely for a trade stream, so use the middle of the
+  // best bid and ask, which updates many times a second.
   binanceus: (symbol) => ({
-    url: "wss://stream.binance.us:9443/ws/" + symbol.replace("/", "").toLowerCase() + "@trade",
-    price: (m) => (m.e === "trade" ? Number(m.p) : NaN),
+    url: "wss://stream.binance.us:9443/ws/" + symbol.replace("/", "").toLowerCase() + "@bookTicker",
+    price: (m) => (m.b && m.a ? (Number(m.b) + Number(m.a)) / 2 : NaN),
   }),
 };
 
@@ -415,7 +422,7 @@ function connectLive(exchange, symbol) {
     if (!liveOn) setLive(true);
     livePrice = last;
     applyTick(last, Date.now());
-    $("price").textContent = usd(last);
+    if (ownLive()) $("price").textContent = usd(last);
     queueDraw();
   };
   ws.onclose = () => { ws = null; setLive(false); setTimeout(() => connectLive(...wsFeed), 5000); };
@@ -435,7 +442,7 @@ function renderPriceChart() {
   const W = svg.clientWidth || 600, H = 320, L = 6, R = 62, T = 10, B = 26;
   const n = candles.length;
   const price = n ? candles[n - 1][4] : null;
-  if (data) $("pc-symbol").textContent = data.symbol;
+  if (data) $("pc-symbol").textContent = data.symbol + (ownLive() ? "" : " on " + data.chart_exchange_name);
   if (price != null) {
     const first = candles[0][1], chg = (price / first - 1) * 100;
     $("pc-last").textContent = usd(price);
@@ -542,7 +549,7 @@ async function refresh() {
     if (res.ok) {
       const body = await res.json();
       if (body.error) { $("updated").textContent = body.error; }
-      else { data = body; render(); connectLive(data.exchange, data.symbol); renderPriceChart(); }
+      else { data = body; render(); connectLive(data.chart_exchange, data.symbol); renderPriceChart(); }
     }
   } catch (e) {
     $("updated").textContent = "dashboard unreachable - retrying";

@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from .config import EXCHANGES
 from .state import load_state, read_jsonl_tail
 
 log = logging.getLogger(__name__)
@@ -98,6 +99,8 @@ def snapshot(cfg):
         "exchange": cfg.exchange,
         "exchange_name": cfg.exchange_name,
         "links": cfg.dashboard_links,
+        "chart_exchange": cfg.chart_source,
+        "chart_exchange_name": EXCHANGES[cfg.chart_source],
         "service": os.environ.get("BOT_SERVICE", "bot"),  # docker compose service name
         "symbol": state["symbol"],
         "status": state["status"],
@@ -121,7 +124,7 @@ def snapshot(cfg):
 
 
 def make_handler(cfg, candles=None):
-    candles = candles or CandleSource(cfg.symbol, exchange=cfg.exchange)
+    candles = candles or CandleSource(cfg.symbol, exchange=cfg.chart_source)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):

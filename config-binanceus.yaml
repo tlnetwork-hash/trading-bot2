@@ -57,6 +57,10 @@ paper:
 # Buttons at the top of the dashboard for switching between the bots'
 # dashboards. Each one is the same server address on a different port.
 dashboard:
+  # Binance.US has so few SOL/USD trades that its candles are mostly flat
+  # lines, so the price chart and live price come from Kraken instead. The
+  # price is the same to within cents; the bot still trades on Binance.US.
+  chart_exchange: kraken
   links:
     - {label: Kraken, port: 8080}
     - {label: Binance.US, port: 8081}

@@ -88,6 +88,11 @@ class Config:
     ntfy_server: str = "https://ntfy.sh"
     data_dir: Path = Path("data")
     dashboard_links: list = field(default_factory=list)  # [{"label": ..., "port": ...}]
+    chart_exchange: str = ""  # where the dashboard's price chart comes from; "" = exchange
+
+    @property
+    def chart_source(self):
+        return self.chart_exchange or self.exchange
 
     @property
     def exchange_name(self):
@@ -123,6 +128,8 @@ class Config:
             raise ConfigError("mode must be 'paper' or 'live'")
         if self.exchange not in EXCHANGES:
             raise ConfigError(f"exchange must be one of: {', '.join(EXCHANGES)}")
+        if self.chart_source not in EXCHANGES:
+            raise ConfigError(f"dashboard.chart_exchange must be one of: {', '.join(EXCHANGES)}")
         if self.capital_usd <= 0:
             raise ConfigError("capital_usd must be positive")
         if self.risk.breakout_action not in ("pause", "recenter"):
@@ -188,6 +195,7 @@ def load_config(path="config.yaml", env=None):
         ntfy_server=env.get("NTFY_SERVER", "").strip() or "https://ntfy.sh",
         data_dir=Path(env.get("BOT_DATA_DIR", "data")),
         dashboard_links=list((raw.get("dashboard") or {}).get("links") or []),
+        chart_exchange=str((raw.get("dashboard") or {}).get("chart_exchange") or "").lower(),
     )
     cfg.validate()
     return cfg
