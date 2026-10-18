@@ -1,3 +1,4 @@
+import pytest
 import json
 import threading
 import urllib.request
@@ -43,6 +44,9 @@ def test_snapshot(make_bot, cfg):
     assert snap["exchange"] == "kraken" and snap["exchange_name"] == "Kraken"
     assert snap["service"] == "bot" and snap["links"] == []
     assert snap["chart_exchange"] == "kraken" and snap["chart_exchange_name"] == "Kraken"
+    lock = snap["profit_lock"]
+    assert lock["base"] == 400 and lock["arm_at"] == pytest.approx(408) and lock["keep_pct"] == 50
+    assert snap["sell_on_breakout_down"] is True
     assert snap["kill_floor"] == 360
     assert snap["equity"] == bot.equity(bot.state["last_price"])
     assert len(snap["orders"]) == len(snap["grid"]["levels"]) - 1
@@ -132,7 +136,8 @@ def test_watchdog_alerts_once_and_on_recovery(make_bot, cfg):
     assert notifier.subjects() == ["Bot stopped updating", "Bot is running again"]
 
 
-def test_trade_alerts_are_quiet_and_kill_switch_is_urgent(make_bot):
+def test_trade_alerts_are_quiet_and_kill_switch_is_urgent(make_bot, cfg):
+    cfg.risk.sell_on_breakout_down = False
     bot, kraken, notifier = make_bot()
     bot.tick()
     kraken.px = 135

@@ -38,8 +38,14 @@ behaves, you change one line to trade for real.
    buy-then-sell earns about one grid spacing (about 1%) on that slice of money, minus Kraken's
    fees (0.40% each way at the starting tier).
 4. **It protects you.**
-   - **Breakout pause:** if the price moves past the top or bottom of the grid, the bot
-     cancels its orders, stops, and emails you. Nothing is sold. You decide when to resume.
+   - **Breakout pause:** if the price moves past the top of the grid, the bot cancels its
+     orders and stops (by then it has sold most of its SOL). If it falls out of the bottom,
+     it also sells its SOL (stop loss), so it isn't holding coins while they keep falling.
+     You decide when to resume.
+   - **Profit lock:** once the bot is up 2%, it never gives back more than half of its best
+     gain. If it does, it sells its SOL and pauses with the profit in cash. A grid sells as
+     the price rises, so its value moves much less than SOL's price; expect this to arm only
+     after the bot has built up grid profit.
    - **Kill switch:** if the bot's money drops **10%** below where it started, it cancels
      everything, stops for good, and emails you. Your coins are not sold.
 5. **It remembers.** Everything is saved to disk, so if the server restarts, the bot picks
@@ -393,6 +399,9 @@ All settings live in `config.yaml`, and each one has a comment explaining it. Ed
 | `capital_usd` | `400` | The most USD the bot may use |
 | `risk.max_drawdown_pct` | `10` | Kill switch: stop if the bot's money falls this % below the start |
 | `risk.breakout_action` | `pause` | `pause` = stop and email you; `recenter` = rebuild the grid around the new price automatically |
+| `risk.sell_on_breakout_down` | `true` | If the price falls out of the bottom of the grid, sell the bot's SOL and pause, instead of holding it while it keeps falling |
+| `risk.profit_lock_start_pct` | `2.0` | Profit lock arms once the bot is up this much since it started (or since the last `resume`). `0` turns it off |
+| `risk.profit_lock_keep_pct` | `50` | Once armed, sell everything and pause if the gain shrinks to this % of the best gain so far. Up 4% at best means it sells at +2%. The stop only moves up |
 | `grid.min_spacing_pct` | `1.0` | Gap between grid lines. Bigger means fewer trades with more profit each |
 | `alerts.email_on_every_fill` | `true` | Set to `false` if fill emails get to be too many |
 | `alerts.daily_summary_hour_utc` | `13` | Hour the daily summary is sent (UTC; 13 = 9am New York in summer) |

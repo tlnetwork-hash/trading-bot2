@@ -42,6 +42,17 @@ risk:
   #   pause    = cancel orders, stop, and email you (you then run "resume")
   #   recenter = automatically rebuild the grid around the new price
   breakout_action: pause
+  # Sell SOL right away if the price falls out of the bottom of the grid,
+  # instead of holding it while it keeps dropping.
+  sell_on_breakout_down: true
+  # Profit lock (a trailing stop on the bot's money). Once the bot is up
+  # profit_lock_start_pct, it remembers its best gain. If it gives back so
+  # much that only profit_lock_keep_pct of that gain is left, it sells all its
+  # SOL and pauses. Example: up 4% at best -> sells if it drops back to +2%.
+  # The stop only moves up and always stays above where it started.
+  # Set profit_lock_start_pct to 0 to turn this off.
+  profit_lock_start_pct: 2.0
+  profit_lock_keep_pct: 50
 
 loop:
   poll_seconds: 30       # how often to check prices and orders

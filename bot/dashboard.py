@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .config import EXCHANGES
 from .state import load_state, read_jsonl_tail
+from .trader import profit_lock_floor
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ def snapshot(cfg):
         "links": cfg.dashboard_links,
         "chart_exchange": cfg.chart_source,
         "chart_exchange_name": EXCHANGES[cfg.chart_source],
-        "service": os.environ.get("BOT_SERVICE", "bot"),  # docker compose service name
+        "service": cfg.service_name,
         "symbol": state["symbol"],
         "status": state["status"],
         "status_reason": state["status_reason"],
@@ -111,6 +112,8 @@ def snapshot(cfg):
         "start_equity": state["start_equity"],
         "kill_floor": state["start_equity"] * (1 - cfg.risk.max_drawdown_pct / 100),
         "breakout_action": cfg.risk.breakout_action,
+        "sell_on_breakout_down": cfg.risk.sell_on_breakout_down,
+        "profit_lock": _profit_lock(cfg, state),
         "fees": {"maker_pct": cfg.fees.maker_pct, "taker_pct": cfg.fees.taker_pct},
         "balances": b,
         "stats": state["stats"],
@@ -120,6 +123,20 @@ def snapshot(cfg):
         "history": history,
         "trades": read_jsonl_tail(cfg.trades_path, TRADE_ROWS),
         "updated_seconds_ago": age,
+    }
+
+
+def _profit_lock(cfg, state):
+    risk = cfg.risk
+    if risk.profit_lock_start_pct <= 0:
+        return None
+    lock = state.get("lock") or {"base": state["start_equity"], "peak": state["start_equity"]}
+    return {
+        "base": lock["base"],
+        "peak": lock["peak"],
+        "arm_at": lock["base"] * (1 + risk.profit_lock_start_pct / 100),
+        "floor": profit_lock_floor(risk, lock),
+        "keep_pct": risk.profit_lock_keep_pct,
     }
 
 

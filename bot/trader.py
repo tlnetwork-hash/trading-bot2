@@ -18,6 +18,21 @@ class BotError(Exception):
     pass
 
 
+def profit_lock_floor(risk, lock):
+    """Equity at which the profit lock sells, or None while it is not armed yet.
+
+    It arms once equity has been profit_lock_start_pct above the run's base,
+    then keeps profit_lock_keep_pct of the best gain seen. The stop only moves
+    up as the high rises, and always stays above the base.
+    """
+    if risk.profit_lock_start_pct <= 0:
+        return None
+    base, peak = lock["base"], lock["peak"]
+    if peak < base * (1 + risk.profit_lock_start_pct / 100):
+        return None
+    return base + (peak - base) * risk.profit_lock_keep_pct / 100
+
+
 class GridBot:
     def __init__(self, cfg, exchange, notifier, state):
         self.cfg = cfg
@@ -32,6 +47,8 @@ class GridBot:
                 f"saved state is for {state['symbol']} but config.yaml says {cfg.symbol}. "
                 f"Run 'reset' with the old symbol first, or delete {cfg.state_path}."
             )
+        # State files saved before the profit lock existed.
+        state.setdefault("lock", {"base": state["start_equity"], "peak": state["start_equity"]})
 
     # ------------------------------------------------------------------ loop
 
@@ -76,7 +93,7 @@ class GridBot:
             self._build_grid(price)
         if st["status"] != "halted" and self._check_kill_switch(price):
             return
-        if st["status"] == "running" and st["grid"]:
+        if st["status"] == "running" and st["grid"] and not self._check_profit_lock(price):
             self._check_breakout(price)
         self._maybe_daily_report(price)
         self._record_history(price)
@@ -322,10 +339,30 @@ class GridBot:
             f"Holding: ${b['quote']:,.2f} + {b['base']:.6f} {self.ex.base}\n\n"
             "All orders were cancelled. Your coins were NOT sold.\n"
             "To restart with a fresh grid (this resets the loss limit to today's value):\n"
-            "  docker compose exec bot python -m bot resume\n"
+            f"  docker compose exec {self.cfg.service_name} python -m bot resume\n"
             "To sell everything and start over:\n"
-            "  docker compose exec bot python -m bot reset",
+            f"  docker compose exec {self.cfg.service_name} python -m bot reset",
             priority="urgent",
+        )
+        return True
+
+    def _check_profit_lock(self, price):
+        """Trailing stop on equity. Returns True if it sold and paused."""
+        lock = self.state["lock"]
+        equity = self.equity(price)
+        lock["peak"] = max(lock["peak"], equity)
+        floor = profit_lock_floor(self.cfg.risk, lock)
+        if floor is None or equity > floor:
+            return False
+        gain = (equity / lock["base"] - 1) * 100
+        high = (lock["peak"] / lock["base"] - 1) * 100
+        self._sell_all_and_pause(
+            "Profit locked",
+            f"profit lock: equity ${equity:,.2f} fell to the stop at ${floor:,.2f} "
+            f"(high was ${lock['peak']:,.2f}, {high:+.2f}%)",
+            f"The bot was up {high:+.2f}% at its high and dropped back to {gain:+.2f}%, "
+            f"so it sold to keep the gain.",
+            price,
         )
         return True
 
@@ -337,7 +374,15 @@ class GridBot:
         direction = "above" if price > grid["upper"] else "below"
         reason = (f"price ${price:,.2f} broke {direction} the grid "
                   f"(${grid['lower']:,.2f} - ${grid['upper']:,.2f})")
-        if self.cfg.risk.breakout_action == "recenter":
+        if direction == "below" and self.cfg.risk.sell_on_breakout_down:
+            self._sell_all_and_pause(
+                "Stop loss: sold on breakout",
+                f"stop loss: {reason}",
+                "The price fell out of the bottom of the grid, so the bot sold its "
+                f"{self.ex.base} instead of holding it while it keeps falling.",
+                price,
+            )
+        elif self.cfg.risk.breakout_action == "recenter":
             log.warning("%s, recentering", reason)
             self._cancel_all()
             self.state["grid"] = None
@@ -345,6 +390,38 @@ class GridBot:
             self._build_grid(price)
         else:
             self._pause(reason)
+
+    def _sell_all(self, price, kind):
+        """Market-sell every coin the bot holds. Returns a line describing the sale."""
+        amount = self.ex.round_amount(self.state["balances"]["base"])
+        if amount < self.ex.min_amount:
+            return ""
+        info = self.ex.market_order("sell", amount, price)
+        amount, fill_price, fee = self._apply_fill("sell", info)
+        self.state["stats"]["sells"] += 1
+        self._log_trade(kind, "sell", amount, fill_price, fee)
+        return f"Sold {amount} {self.ex.base} @ ${fill_price:,.2f} (fee ${fee:.4f}).\n"
+
+    def _sell_all_and_pause(self, title, reason, explanation, price):
+        st = self.state
+        self._cancel_all()
+        st["grid"] = None
+        sold = self._sell_all(price, "stop")
+        st["status"] = "paused"
+        st["status_reason"] = reason
+        self.save()
+        log.warning("paused after selling: %s", reason)
+        b = st["balances"]
+        equity = self.equity(price)
+        self.notifier.send(
+            title,
+            f"{explanation}\n\n{sold}"
+            f"Now holding: ${b['quote']:,.2f} + {b['base']:.6f} {self.ex.base}\n"
+            f"Equity: ${equity:,.2f} ({(equity / st['start_equity'] - 1) * 100:+.2f}% since start)\n\n"
+            "The bot is paused and holding cash. To build a new grid around the current price:\n"
+            f"  docker compose exec {self.cfg.service_name} python -m bot resume",
+            priority="high",
+        )
 
     def _pause(self, reason):
         st = self.state
@@ -362,7 +439,7 @@ class GridBot:
             f"Holding: ${b['quote']:,.2f} + {b['base']:.6f} {self.ex.base}\n"
             f"Equity: ${self.equity(price):,.2f}\n\n"
             "To build a new grid around the current price:\n"
-            "  docker compose exec bot python -m bot resume",
+            f"  docker compose exec {self.cfg.service_name} python -m bot resume",
             priority="high",
         )
 
@@ -385,6 +462,8 @@ class GridBot:
                 return
             if st["status"] == "halted":
                 st["start_equity"] = self.equity(price)
+            # The profit lock starts over from today's value.
+            st["lock"] = {"base": self.equity(price), "peak": self.equity(price)}
             self._cancel_all()
             st["grid"] = None
             st["status"] = "running"
@@ -399,14 +478,7 @@ class GridBot:
 
     def _reset(self, price):
         self._cancel_all()
-        base = self.state["balances"]["base"]
-        amount = self.ex.round_amount(base)
-        sold = ""
-        if amount >= self.ex.min_amount:
-            info = self.ex.market_order("sell", amount, price)
-            amount, fill_price, fee = self._apply_fill("sell", info)
-            self._log_trade("reset", "sell", amount, fill_price, fee)
-            sold = f"Sold {amount} {self.ex.base} @ ${fill_price:,.2f}.\n"
+        sold = self._sell_all(price, "reset")
         final = self.state["balances"]["quote"]
         self.state = new_state(self.cfg)
         if hasattr(self.ex, "book"):
@@ -461,11 +533,23 @@ class GridBot:
             f"Trades: {s['buys']} buys, {s['sells']} sells, {s['round_trips']} completed round trips",
             f"Grid profit: ${s['grid_profit']:.4f}   Fees paid: ${s['fees']:.4f}",
             f"Kill switch at: ${start * (1 - self.cfg.risk.max_drawdown_pct / 100):,.2f}",
+            self._lock_line(),
         ]
         if g:
             lines.append(f"Grid: ${g['lower']:,.2f} - ${g['upper']:,.2f}, {len(g['levels'])} levels, "
                          f"{g['spacing_pct']:.2f}% apart, {len(st['orders'])} open orders")
         return "\n".join(lines)
+
+    def _lock_line(self):
+        start = self.state["start_equity"]
+        risk, lock = self.cfg.risk, self.state.get("lock") or {"base": start, "peak": start}
+        if risk.profit_lock_start_pct <= 0:
+            return "Profit lock: off"
+        floor = profit_lock_floor(risk, lock)
+        if floor is None:
+            arm = lock["base"] * (1 + risk.profit_lock_start_pct / 100)
+            return f"Profit lock: arms when equity reaches ${arm:,.2f} (high so far ${lock['peak']:,.2f})"
+        return f"Profit lock: ARMED, sells if equity falls to ${floor:,.2f} (high ${lock['peak']:,.2f})"
 
     def _error_email(self, error):
         now = utcnow()
