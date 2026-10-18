@@ -3,22 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111110">
 <title>Grid Bot</title>
 <style>
 :root {
-  --bg: #f4f4f2; --surface: #fcfcfb; --border: #e3e2de;
-  --text: #0b0b0b; --text-2: #52514e; --text-3: #7a7974;
-  --series: #2a78d6; --buy: #2a78d6; --sell: #eb6834;
+  color-scheme: dark;
+  --bg: #111110; --surface: #1a1a19; --border: #2c2c2a;
+  --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
+  --series: #3987e5; --buy: #3987e5; --sell: #d95926;
   --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
-  --grid: #ecebe7; --price: #0b0b0b;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111110; --surface: #1a1a19; --border: #2c2c2a;
-    --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
-    --series: #3987e5; --buy: #3987e5; --sell: #d95926;
-    --grid: #262624; --price: #f0efec;
-  }
+  --grid: #262624; --price: #f0efec;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
