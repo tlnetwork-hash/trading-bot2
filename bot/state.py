@@ -19,6 +19,8 @@ def new_state(cfg):
         "status_reason": "",
         "created_at": utcnow().isoformat(timespec="seconds"),
         "start_equity": cfg.capital_usd,
+        # Profit lock: equity when this run (or the last resume) began, and its high since.
+        "lock": {"base": cfg.capital_usd, "peak": cfg.capital_usd},
         "balances": {"quote": cfg.capital_usd, "base": 0.0},
         "grid": None,
         "orders": {},                 # grid level index -> order

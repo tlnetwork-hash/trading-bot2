@@ -37,6 +37,13 @@ class FeeConfig:
 class RiskConfig:
     max_drawdown_pct: float = 10.0
     breakout_action: str = "pause"
+    # Profit lock (trailing stop): once equity is up profit_lock_start_pct, sell
+    # everything if it gives back more than (100 - profit_lock_keep_pct)% of its
+    # best gain. 0 turns it off.
+    profit_lock_start_pct: float = 2.0
+    profit_lock_keep_pct: float = 50.0
+    # Sell the bot's coins when the price falls out of the bottom of the grid.
+    sell_on_breakout_down: bool = True
 
 
 @dataclass
@@ -89,6 +96,7 @@ class Config:
     data_dir: Path = Path("data")
     dashboard_links: list = field(default_factory=list)  # [{"label": ..., "port": ...}]
     chart_exchange: str = ""  # where the dashboard's price chart comes from; "" = exchange
+    service_name: str = "bot"  # docker compose service, used in help text for commands
 
     @property
     def chart_source(self):
@@ -136,6 +144,11 @@ class Config:
             raise ConfigError("risk.breakout_action must be 'pause' or 'recenter'")
         if not 0 < self.risk.max_drawdown_pct < 100:
             raise ConfigError("risk.max_drawdown_pct must be between 0 and 100")
+        r = self.risk
+        if r.profit_lock_start_pct < 0:
+            raise ConfigError("risk.profit_lock_start_pct cannot be negative (0 turns it off)")
+        if r.profit_lock_start_pct > 0 and not 0 < r.profit_lock_keep_pct < 100:
+            raise ConfigError("risk.profit_lock_keep_pct must be between 0 and 100")
         if self.grid.min_range_pct > self.grid.max_range_pct:
             raise ConfigError("grid.min_range_pct cannot be larger than grid.max_range_pct")
         if self.grid.max_levels < 2:
@@ -196,6 +209,7 @@ def load_config(path="config.yaml", env=None):
         data_dir=Path(env.get("BOT_DATA_DIR", "data")),
         dashboard_links=list((raw.get("dashboard") or {}).get("links") or []),
         chart_exchange=str((raw.get("dashboard") or {}).get("chart_exchange") or "").lower(),
+        service_name=env.get("BOT_SERVICE", "").strip() or "bot",
     )
     cfg.validate()
     return cfg

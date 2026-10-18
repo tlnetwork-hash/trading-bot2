@@ -42,6 +42,8 @@ services:
     restart: unless-stopped
     depends_on: [bot]              # bot builds the shared image
     env_file: .env
+    environment:
+      BOT_SERVICE: bot-binanceus   # shown in alerts' help text
     volumes:
       - ./config-binanceus.yaml:/app/config.yaml:ro
       - ./data-binanceus:/app/data

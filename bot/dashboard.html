@@ -111,6 +111,7 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
     <div class="card tile"><div class="label">Grid profit</div><div class="value" id="profit">-</div><div class="sub" id="profit-sub"></div></div>
     <div class="card tile"><div class="label">Fees paid</div><div class="value" id="fees">-</div><div class="sub" id="fees-sub"></div></div>
     <div class="card tile"><div class="label">Kill switch</div><div class="value" id="kill">-</div><div class="sub" id="kill-sub"></div></div>
+    <div class="card tile" id="lock-tile"><div class="label" id="lock-label">Profit lock</div><div class="value" id="lock">-</div><div class="sub" id="lock-sub"></div></div>
   </section>
 
   <section class="card price-card">
@@ -220,6 +221,7 @@ function render() {
   $("fees-sub").textContent = "maker " + d.fees.maker_pct + "% / taker " + d.fees.taker_pct + "%";
   $("kill").textContent = usd(d.kill_floor);
   $("kill-sub").textContent = d.status === "halted" ? "triggered" : pct((d.kill_floor / d.equity - 1) * 100) + " from here";
+  renderLock(d);
 
   renderLadder(base);
   renderStats(base);
@@ -236,6 +238,23 @@ function renderSwitch(d) {
     const href = location.protocol + "//" + location.hostname + ":" + l.port + "/";
     return `<a href="${esc(href)}"${l.port === here ? ' aria-current="page"' : ""}>${esc(l.label)}</a>`;
   }).join("");
+}
+
+// Profit lock tile: where the trailing stop sits, or when it will arm.
+function renderLock(d) {
+  const L = d.profit_lock;
+  $("lock-tile").hidden = !L;
+  if (!L) return;
+  const best = pct((L.peak / L.base - 1) * 100);
+  if (L.floor == null) {
+    $("lock-label").textContent = "Profit lock (not armed)";
+    $("lock").textContent = usd(L.arm_at);
+    $("lock-sub").textContent = "arms at " + pct((L.arm_at / L.base - 1) * 100) + ", best so far " + best;
+  } else {
+    $("lock-label").textContent = "Profit lock (armed)";
+    $("lock").textContent = usd(L.floor);
+    $("lock-sub").textContent = "sells here, keeps " + pct((L.floor / L.base - 1) * 100) + " of best " + best;
+  }
 }
 
 function sideCell(side) {
@@ -271,7 +290,8 @@ function renderStats(base) {
     ["Change", usd(d.equity - d.start_equity) + " (" + pct((d.equity / d.start_equity - 1) * 100) + ")"],
     ["Open orders", d.orders.length],
     ["Grid built", d.grid ? timeLabel(d.grid.created_at, true) + " at " + usd(d.grid.created_price) : "-"],
-    ["Breakout action", d.breakout_action],
+    ["If price breaks below", d.sell_on_breakout_down ? "sell and pause" : d.breakout_action],
+    ["If price breaks above", d.breakout_action],
     ["Running since", timeLabel(d.created_at, true)],
   ];
   $("stats").innerHTML = items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");

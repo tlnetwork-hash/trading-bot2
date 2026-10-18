@@ -61,7 +61,8 @@ def test_one_level_always_stays_empty(make_bot):
         assert len(bot.state["orders"]) == n - 1
 
 
-def test_breakout_pauses_and_cancels(make_bot):
+def test_breakout_pauses_and_cancels(make_bot, cfg):
+    cfg.risk.sell_on_breakout_down = False
     bot, kraken, notifier = make_bot()
     bot.tick()
     kraken.px = 137   # just below the grid
@@ -75,7 +76,8 @@ def test_breakout_pauses_and_cancels(make_bot):
     assert st["balances"]["base"] > 2
 
 
-def test_kill_switch_halts(make_bot):
+def test_kill_switch_halts(make_bot, cfg):
+    cfg.risk.sell_on_breakout_down = False
     bot, kraken, notifier = make_bot()
     bot.tick()
     kraken.px = 135   # breaks out first -> paused while holding coins
@@ -91,6 +93,7 @@ def test_kill_switch_halts(make_bot):
 
 
 def test_resume_after_kill_switch_resets_loss_limit(make_bot, cfg):
+    cfg.risk.sell_on_breakout_down = False
     bot, kraken, _ = make_bot()
     bot.tick()
     kraken.px = 135
@@ -188,3 +191,102 @@ def test_gap_down_through_many_levels_places_every_counter_sell(make_bot):
     assert levels_with(bot, "buy") == [0]
     assert levels_with(bot, "sell") == list(range(2, len(grid["levels"])))
     assert bot.state["stats"]["buys"] == c - 1
+
+
+def test_breakout_below_sells_and_pauses(make_bot):
+    bot, kraken, notifier = make_bot()
+    bot.tick()
+    kraken.px = 137   # just below the grid, after every buy filled
+    bot.tick()
+    st = bot.state
+    assert st["status"] == "paused" and st["orders"] == {} and st["grid"] is None
+    assert st["status_reason"].startswith("stop loss")
+    assert st["balances"]["base"] == pytest.approx(0, abs=1e-6)
+    assert "Stop loss: sold on breakout" in notifier.subjects()
+    assert notifier.priorities["Stop loss: sold on breakout"] == "high"
+    kraken.px = 100   # the crash no longer hurts: the bot holds cash
+    bot.tick()
+    assert st["status"] == "paused"
+    assert bot.equity(100) == pytest.approx(bot.equity(137))
+
+
+def test_breakout_above_still_just_pauses(make_bot):
+    bot, kraken, notifier = make_bot()
+    bot.tick()
+    kraken.px = 162
+    bot.tick()
+    assert bot.state["status"] == "paused"
+    assert "Bot paused" in notifier.subjects()
+
+
+def test_profit_lock_trails_and_sells_before_going_negative(make_bot, cfg):
+    from bot.trader import profit_lock_floor
+    # A grid sells as the price rises, so in this short test equity only gains
+    # about 1%; arm the lock at 0.5% to exercise it.
+    cfg.risk.profit_lock_start_pct = 0.5
+    bot, kraken, notifier = make_bot()
+    bot.tick()
+    lock = bot.state["lock"]
+    assert lock == {"base": 400, "peak": 400}
+    assert "arms when equity reaches $402.00" in bot.summary(150)
+    # Rising price: the bot gains, the lock arms and its stop follows the high.
+    stops = []
+    for px in (154, 156, 158):
+        kraken.px = px
+        bot.tick()
+        stops.append(profit_lock_floor(cfg.risk, lock))
+    assert bot.state["status"] == "running"
+    assert stops == sorted(stops) and stops[0] is not None   # only moves up
+    high = lock["peak"]
+    assert high >= 400 * 1.005
+    assert stops[-1] == pytest.approx(400 + (high - 400) / 2)
+    assert "ARMED" in bot.summary(158)
+    # Falling back: once equity reaches the stop, it sells everything.
+    for px in (157, 156, 155, 154, 153, 152, 151, 150):
+        kraken.px = px
+        bot.tick()
+        if bot.state["status"] != "running":
+            break
+    st = bot.state
+    assert st["status"] == "paused" and st["status_reason"].startswith("profit lock")
+    assert st["balances"]["base"] == pytest.approx(0, abs=1e-6)
+    assert "Profit locked" in notifier.subjects()
+    # It sold while still ahead of where it started.
+    assert st["balances"]["quote"] > 400
+
+
+def test_profit_lock_keeps_half_the_best_gain(cfg):
+    from bot.trader import profit_lock_floor
+    lock = {"base": 400, "peak": 407}
+    assert profit_lock_floor(cfg.risk, lock) is None          # +1.75%: not armed yet
+    lock["peak"] = 408                                         # +2% arms it
+    assert profit_lock_floor(cfg.risk, lock) == pytest.approx(404)   # keeps +1%
+    lock["peak"] = 424                                         # best gain +6%
+    assert profit_lock_floor(cfg.risk, lock) == pytest.approx(412)   # keeps +3%
+    cfg.risk.profit_lock_start_pct = 0
+    assert profit_lock_floor(cfg.risk, lock) is None          # turned off
+
+
+def test_resume_after_profit_lock_starts_a_fresh_lock(make_bot, cfg):
+    cfg.risk.profit_lock_start_pct = 0.5
+    bot, kraken, _ = make_bot()
+    bot.tick()
+    for px in (154, 156, 158, 156, 154, 152, 150):
+        kraken.px = px
+        bot.tick()
+    assert bot.state["status"] == "paused"
+    cfg.command_path.write_text("resume")
+    bot.tick()
+    bot.tick()
+    st = bot.state
+    assert st["status"] == "running" and st["grid"]["created_price"] == 150
+    assert st["lock"]["base"] == pytest.approx(bot.equity(150), rel=0.01)
+    assert st["start_equity"] == 400   # the kill switch still measures from the start
+
+
+def test_old_state_without_lock_still_loads(make_bot, cfg):
+    from bot.state import new_state
+    state = new_state(cfg)
+    del state["lock"]
+    bot, _, _ = make_bot(state=state)
+    assert bot.state["lock"] == {"base": 400, "peak": 400}
