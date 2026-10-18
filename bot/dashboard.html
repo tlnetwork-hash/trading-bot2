@@ -204,7 +204,7 @@ function render() {
   if (age != null && age > 180)
     banners += `<div class="banner critical"><b>The bot hasn't saved anything in ${Math.round(age / 60)} minutes.</b> It may be stopped. Check with <code>docker compose ps</code>.</div>`;
   if (d.status === "paused")
-    banners += `<div class="banner"><b>Paused:</b> ${esc(d.status_reason)}. Resume with <code>docker compose exec ${esc(d.service)} python -m bot resume</code></div>`;
+    banners += `<div class="banner"><b>Paused:</b> ${esc(d.status_reason)}. ${d.rebuy ? rebuyText(d.rebuy) : ""} Resume now with <code>docker compose exec ${esc(d.service)} python -m bot resume</code></div>`;
   if (d.status === "halted")
     banners += `<div class="banner critical"><b>Kill switch triggered:</b> ${esc(d.status_reason)}</div>`;
   $("banners").innerHTML = banners;
@@ -238,6 +238,12 @@ function renderSwitch(d) {
     const href = location.protocol + "//" + location.hostname + ":" + l.port + "/";
     return `<a href="${esc(href)}"${l.port === here ? ' aria-current="page"' : ""}>${esc(l.label)}</a>`;
   }).join("");
+}
+
+function rebuyText(r) {
+  return `<br>It will start again by itself when the price bounces to <b>${usd(r.target)}</b> ` +
+    `(low so far ${usd(r.low)}) while still at or below ${usd(r.sold_price)}, where it sold, ` +
+    `and not before ${timeLabel(r.after, true)}.<br>`;
 }
 
 // Profit lock tile: where the trailing stop sits, or when it will arm.

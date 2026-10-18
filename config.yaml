@@ -53,6 +53,14 @@ risk:
   # Set profit_lock_start_pct to 0 to turn this off.
   profit_lock_start_pct: 2.0
   profit_lock_keep_pct: 50
+  # After a stop-loss or profit-lock sale, start trading again by itself, but
+  # only at a good spot to buy: SOL has bounced restart_bounce_pct off its
+  # lowest price since the sale (it stopped falling), the price is no higher
+  # than where the bot sold, and at least restart_wait_minutes have passed.
+  # The kill switch never restarts by itself.
+  auto_restart: true
+  restart_bounce_pct: 2.0
+  restart_wait_minutes: 60
 
 loop:
   poll_seconds: 30       # how often to check prices and orders

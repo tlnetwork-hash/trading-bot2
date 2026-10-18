@@ -2,6 +2,7 @@
 
 import logging
 import threading
+from datetime import datetime, timedelta
 
 import ccxt
 
@@ -31,6 +32,15 @@ def profit_lock_floor(risk, lock):
     if peak < base * (1 + risk.profit_lock_start_pct / 100):
         return None
     return base + (peak - base) * risk.profit_lock_keep_pct / 100
+
+
+def rebuy_target(risk, rebuy):
+    """Price SOL has to bounce back to before the bot buys in again."""
+    return rebuy["low"] * (1 + risk.restart_bounce_pct / 100)
+
+
+def rebuy_after(risk, rebuy):
+    return datetime.fromisoformat(rebuy["since"]) + timedelta(minutes=risk.restart_wait_minutes)
 
 
 class GridBot:
@@ -88,6 +98,8 @@ class GridBot:
         self._check_orders()
         self._handle_command(price)
         st = self.state  # "reset" replaces the state object
+        if st["status"] == "paused" and st.get("rebuy"):
+            self._check_rebuy(price)
 
         if st["status"] == "running" and st["grid"] is None:
             self._build_grid(price)
@@ -400,15 +412,27 @@ class GridBot:
         amount, fill_price, fee = self._apply_fill("sell", info)
         self.state["stats"]["sells"] += 1
         self._log_trade(kind, "sell", amount, fill_price, fee)
+        self.state["last_sale_price"] = fill_price
         return f"Sold {amount} {self.ex.base} @ ${fill_price:,.2f} (fee ${fee:.4f}).\n"
 
     def _sell_all_and_pause(self, title, reason, explanation, price):
         st = self.state
         self._cancel_all()
         st["grid"] = None
+        st["last_sale_price"] = price
         sold = self._sell_all(price, "stop")
         st["status"] = "paused"
         st["status_reason"] = reason
+        risk = self.cfg.risk
+        restart = ""
+        if risk.auto_restart:
+            st["rebuy"] = {"sold_price": st["last_sale_price"], "low": price,
+                           "since": utcnow().isoformat(timespec="seconds")}
+            restart = (f"It will start again by itself once {self.ex.base} has bounced "
+                       f"{risk.restart_bounce_pct:g}% off its lowest price, is no higher than "
+                       f"${st['last_sale_price']:,.2f} (where it sold), and at least "
+                       f"{risk.restart_wait_minutes} minutes have passed.\n"
+                       f"To stop that, run: docker compose exec {self.cfg.service_name} python -m bot pause\n")
         self.save()
         log.warning("paused after selling: %s", reason)
         b = st["balances"]
@@ -418,8 +442,29 @@ class GridBot:
             f"{explanation}\n\n{sold}"
             f"Now holding: ${b['quote']:,.2f} + {b['base']:.6f} {self.ex.base}\n"
             f"Equity: ${equity:,.2f} ({(equity / st['start_equity'] - 1) * 100:+.2f}% since start)\n\n"
-            "The bot is paused and holding cash. To build a new grid around the current price:\n"
+            f"The bot is paused and holding cash. {restart}"
+            "To build a new grid around the current price now:\n"
             f"  docker compose exec {self.cfg.service_name} python -m bot resume",
+            priority="high",
+        )
+
+    def _check_rebuy(self, price):
+        """Auto-restart after a stop-loss or profit-lock sale, once the price has
+        stopped falling and is no higher than where the bot sold."""
+        st, risk = self.state, self.cfg.risk
+        rebuy = st["rebuy"]
+        rebuy["low"] = min(rebuy["low"], price)
+        if not (price >= rebuy_target(risk, rebuy) and price <= rebuy["sold_price"]
+                and utcnow() >= rebuy_after(risk, rebuy)):
+            return
+        log.info("good spot to buy again at %.4f (low %.4f, sold %.4f)",
+                 price, rebuy["low"], rebuy["sold_price"])
+        self._resume(price)
+        self.notifier.send(
+            "Bot restarted: good spot to buy",
+            f"{self.ex.base} bounced from a low of ${rebuy['low']:,.2f} to ${price:,.2f}, "
+            f"below the ${rebuy['sold_price']:,.2f} it sold at.\n"
+            f"Building a new grid around ${price:,.2f}.",
             priority="high",
         )
 
@@ -456,25 +501,35 @@ class GridBot:
         if command == "pause":
             if st["status"] == "running":
                 self._pause("paused by you")
+            elif st.pop("rebuy", None):
+                st["status_reason"] = "paused by you (automatic restart cancelled)"
+                self.save()
+                self.notifier.send("Automatic restart cancelled",
+                                   "The bot stays paused until you run resume.")
         elif command == "resume":
             if st["status"] == "running":
                 log.info("already running")
                 return
             if st["status"] == "halted":
                 st["start_equity"] = self.equity(price)
-            # The profit lock starts over from today's value.
-            st["lock"] = {"base": self.equity(price), "peak": self.equity(price)}
-            self._cancel_all()
-            st["grid"] = None
-            st["status"] = "running"
-            st["status_reason"] = ""
-            self.save()
+            self._resume(price)
             self.notifier.send("Bot resuming", f"Building a new grid around ${price:,.2f}.\n"
                                                f"Loss limit measured from ${st['start_equity']:,.2f}.")
         elif command == "reset":
             self._reset(price)
         else:
             log.warning("unknown command %r (expected pause, resume or reset)", command)
+
+    def _resume(self, price):
+        st = self.state
+        # The profit lock starts over from today's value.
+        st["lock"] = {"base": self.equity(price), "peak": self.equity(price)}
+        st.pop("rebuy", None)
+        self._cancel_all()
+        st["grid"] = None
+        st["status"] = "running"
+        st["status_reason"] = ""
+        self.save()
 
     def _reset(self, price):
         self._cancel_all()
@@ -535,6 +590,12 @@ class GridBot:
             f"Kill switch at: ${start * (1 - self.cfg.risk.max_drawdown_pct / 100):,.2f}",
             self._lock_line(),
         ]
+        if st.get("rebuy"):
+            r = st["rebuy"]
+            lines.append(
+                f"Auto-restart: waiting for {self.cfg.symbol.split('/')[0]} to bounce to "
+                f"${rebuy_target(self.cfg.risk, r):,.2f} (low ${r['low']:,.2f}) while at or below "
+                f"${r['sold_price']:,.2f}, not before {rebuy_after(self.cfg.risk, r):%H:%M} UTC")
         if g:
             lines.append(f"Grid: ${g['lower']:,.2f} - ${g['upper']:,.2f}, {len(g['levels'])} levels, "
                          f"{g['spacing_pct']:.2f}% apart, {len(st['orders'])} open orders")

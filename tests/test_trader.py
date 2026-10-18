@@ -290,3 +290,118 @@ def test_old_state_without_lock_still_loads(make_bot, cfg):
     del state["lock"]
     bot, _, _ = make_bot(state=state)
     assert bot.state["lock"] == {"base": 400, "peak": 400}
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Controls the time the trader sees."""
+    import bot.trader as trader
+    from datetime import datetime, timedelta, timezone
+    now = [datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)]
+    monkeypatch.setattr(trader, "utcnow", lambda: now[0])
+
+    def advance(minutes):
+        now[0] += timedelta(minutes=minutes)
+    return advance
+
+
+def sell_on_breakdown(bot, kraken):
+    bot.tick()
+    kraken.px = 137   # falls out of the bottom of the grid -> sells
+    bot.tick()
+    assert bot.state["status"] == "paused" and bot.state["rebuy"]["sold_price"] < 137
+
+
+def test_auto_restart_waits_for_a_bounce_below_the_sale_price(make_bot, clock):
+    bot, kraken, notifier = make_bot()
+    sell_on_breakdown(bot, kraken)
+    sold = bot.state["rebuy"]["sold_price"]
+    # Still falling: never restarts while making new lows.
+    for px in (134, 130, 127):
+        kraken.px = px
+        clock(30)
+        bot.tick()
+        assert bot.state["status"] == "paused"
+    assert bot.state["rebuy"]["low"] == 127
+    # A bounce under 2% isn't enough.
+    kraken.px = 129
+    clock(30)
+    bot.tick()
+    assert bot.state["status"] == "paused"
+    assert "Auto-restart: waiting" in bot.summary(129)
+    # 2% off the low and below where it sold: restarts with a new grid there.
+    kraken.px = 130
+    bot.tick()
+    st = bot.state
+    assert 130 < sold
+    assert st["status"] == "running" and "rebuy" not in st
+    assert st["grid"]["created_price"] == 130
+    assert "Bot restarted: good spot to buy" in notifier.subjects()
+    assert st["lock"]["base"] == pytest.approx(bot.equity(130), rel=0.01)
+
+
+def test_auto_restart_respects_the_wait(make_bot, clock):
+    bot, kraken, _ = make_bot()
+    sell_on_breakdown(bot, kraken)
+    kraken.px = 130
+    clock(10)
+    bot.tick()
+    kraken.px = 133   # bounced, but only 20 minutes after the sale
+    clock(10)
+    bot.tick()
+    assert bot.state["status"] == "paused"
+    clock(45)         # an hour has passed and the price is still a good spot
+    bot.tick()
+    assert bot.state["status"] == "running"
+
+
+def test_auto_restart_never_buys_back_higher_than_it_sold(make_bot, clock):
+    bot, kraken, _ = make_bot()
+    sell_on_breakdown(bot, kraken)
+    sold = bot.state["rebuy"]["sold_price"]
+    kraken.px = 145   # jumped straight back above the sale price
+    clock(120)
+    bot.tick()
+    assert bot.state["status"] == "paused"
+    kraken.px = 140   # 2% above the low of 137, but still above where it sold
+    bot.tick()
+    assert bot.state["status"] == "paused"
+    kraken.px = 130   # a lower low...
+    bot.tick()
+    kraken.px = 133   # ...and a 2% bounce that is cheaper than the sale: buys again
+    bot.tick()
+    assert 133 < sold and bot.state["status"] == "running"
+
+
+def test_pause_command_cancels_auto_restart(make_bot, cfg, clock):
+    bot, kraken, notifier = make_bot()
+    sell_on_breakdown(bot, kraken)
+    cfg.command_path.write_text("pause")
+    bot.tick()
+    assert "rebuy" not in bot.state and "Automatic restart cancelled" in notifier.subjects()
+    kraken.px = 120
+    clock(120)
+    bot.tick()
+    kraken.px = 125
+    bot.tick()
+    assert bot.state["status"] == "paused"
+
+
+def test_auto_restart_can_be_turned_off(make_bot, cfg, clock):
+    cfg.risk.auto_restart = False
+    bot, kraken, _ = make_bot()
+    bot.tick()
+    kraken.px = 137
+    bot.tick()
+    assert bot.state["status"] == "paused" and "rebuy" not in bot.state
+
+
+def test_kill_switch_does_not_auto_restart(make_bot, cfg, clock):
+    cfg.risk.sell_on_breakout_down = False
+    bot, kraken, _ = make_bot()
+    bot.tick()
+    kraken.px = 135
+    bot.tick()
+    kraken.px = 100
+    bot.tick()
+    assert bot.state["status"] == "halted" and "rebuy" not in bot.state

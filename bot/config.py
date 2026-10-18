@@ -44,6 +44,12 @@ class RiskConfig:
     profit_lock_keep_pct: float = 50.0
     # Sell the bot's coins when the price falls out of the bottom of the grid.
     sell_on_breakout_down: bool = True
+    # After either of those sales, start trading again by itself once the price
+    # has bounced restart_bounce_pct off its low, is no higher than where it
+    # sold, and at least restart_wait_minutes have passed.
+    auto_restart: bool = True
+    restart_bounce_pct: float = 2.0
+    restart_wait_minutes: int = 60
 
 
 @dataclass
@@ -147,6 +153,9 @@ class Config:
         r = self.risk
         if r.profit_lock_start_pct < 0:
             raise ConfigError("risk.profit_lock_start_pct cannot be negative (0 turns it off)")
+        if r.restart_bounce_pct <= 0 or r.restart_wait_minutes < 0:
+            raise ConfigError("risk.restart_bounce_pct must be above 0 and "
+                              "risk.restart_wait_minutes cannot be negative")
         if r.profit_lock_start_pct > 0 and not 0 < r.profit_lock_keep_pct < 100:
             raise ConfigError("risk.profit_lock_keep_pct must be between 0 and 100")
         if self.grid.min_range_pct > self.grid.max_range_pct:
