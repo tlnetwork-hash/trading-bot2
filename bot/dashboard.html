@@ -33,6 +33,10 @@ h1 { font-size: 20px; margin: 0; font-weight: 650; }
   color: var(--text-2); text-decoration: none; }
 .switch a:not([aria-current]):hover { background: var(--grid); color: var(--text); }
 .switch a[aria-current="page"] { background: var(--text); color: var(--surface); }
+.sites { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: -6px 0 16px; font-size: 13px; }
+.sites .label { color: var(--text-2); }
+.sites a { color: var(--series); font-weight: 600; text-decoration: none; }
+.sites a:hover { text-decoration: underline; }
 .updated { margin-left: auto; color: var(--text-3); font-size: 12px; }
 .banner { border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; border: 1px solid var(--border);
   background: var(--surface); border-left: 4px solid var(--warning); }
@@ -95,6 +99,10 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
     <span class="updated" id="updated">loading...</span>
   </header>
   <div class="botnav"><span class="label">Bots</span><nav class="switch" id="switch" aria-label="Switch between the bots' dashboards"></nav></div>
+  <div class="sites"><span class="label">Exchange websites</span>
+    <a href="https://www.binance.us/" target="_blank" rel="noopener noreferrer">Binance.US ↗</a>
+    <a href="https://www.kraken.com/" target="_blank" rel="noopener noreferrer">Kraken ↗</a>
+  </div>
   <div id="banners"></div>
 
   <section class="tiles">
