@@ -36,7 +36,7 @@ behaves, you change one line to trade for real.
 3. **It buys low and sells high, over and over.** When the price dips and a buy fills, the bot
    places a sell one line higher. When that sell fills, it puts the buy back. Each completed
    buy-then-sell earns about one grid spacing (about 1%) on that slice of money, minus Kraken's
-   fees (0.25% each way).
+   fees (0.40% each way at the starting tier).
 4. **It protects you.**
    - **Breakout pause:** if the price moves past the top or bottom of the grid, the bot
      cancels its orders, stops, and emails you. Nothing is sold. You decide when to resume.

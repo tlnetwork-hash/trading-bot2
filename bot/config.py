@@ -25,8 +25,8 @@ class GridConfig:
 
 @dataclass
 class FeeConfig:
-    maker_pct: float = 0.25
-    taker_pct: float = 0.40
+    maker_pct: float = 0.40
+    taker_pct: float = 0.80
 
 
 @dataclass

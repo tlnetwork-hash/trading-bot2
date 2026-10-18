@@ -24,10 +24,11 @@ grid:
   fee_reserve_pct: 2     # % of capital kept aside for fees and rounding
 
 # Your Kraken fee tier. Used to simulate paper trades and to check that the
-# grid spacing is profitable. 0.25 / 0.40 is Kraken's starting tier.
+# grid spacing is profitable. 0.40 / 0.80 is Kraken Pro's starting tier
+# (Tier 1, since July 2026). Check https://www.kraken.com/features/fee-schedule
 fees:
-  maker_pct: 0.25
-  taker_pct: 0.40
+  maker_pct: 0.40
+  taker_pct: 0.80
 
 risk:
   # Kill switch: if the bot's money falls this % below where it started,
