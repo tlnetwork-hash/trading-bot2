@@ -149,3 +149,17 @@ def test_shipped_configs_load():
     assert (kraken.exchange, binance.exchange) == ("kraken", "binanceus")
     assert binance.fees.maker_pct == 0 and kraken.fees.maker_pct == 0.40
     assert kraken.dashboard_links == binance.dashboard_links
+    assert (kraken.chart_source, binance.chart_source) == ("kraken", "kraken")
+
+
+def test_chart_exchange(tmp_path):
+    import pytest
+    from bot.config import ConfigError
+    path = tmp_path / "config.yaml"
+    path.write_text("exchange: binanceus\n")
+    assert load_config(path, env={}).chart_source == "binanceus"
+    path.write_text("exchange: binanceus\ndashboard:\n  chart_exchange: Kraken\n")
+    assert load_config(path, env={}).chart_source == "kraken"
+    path.write_text("dashboard:\n  chart_exchange: nope\n")
+    with pytest.raises(ConfigError, match="chart_exchange"):
+        load_config(path, env={})
