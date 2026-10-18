@@ -51,9 +51,10 @@ class GridBot:
                 self.network_failures = 0
             except ccxt.NetworkError as e:
                 self.network_failures += 1
-                log.warning("network problem talking to Kraken (%d in a row): %s", self.network_failures, e)
+                log.warning("network problem talking to %s (%d in a row): %s",
+                            self.cfg.exchange_name, self.network_failures, e)
                 if self.network_failures == NETWORK_ALERT_AFTER:
-                    self.notifier.send("Cannot reach Kraken", f"{NETWORK_ALERT_AFTER} failed attempts in a row.\nLast error: {e}",
+                    self.notifier.send(f"Cannot reach {self.cfg.exchange_name}", f"{NETWORK_ALERT_AFTER} failed attempts in a row.\nLast error: {e}",
                                          priority="high")
             except Exception as e:
                 log.exception("error during tick")
@@ -160,9 +161,11 @@ class GridBot:
         base_free, quote_free = free
         b = self.state["balances"]
         if quote_free < b["quote"] * 0.99:
-            raise BotError(f"Kraken has ${quote_free:,.2f} {self.ex.quote} free but the bot expects ${b['quote']:,.2f}")
+            raise BotError(f"{self.cfg.exchange_name} has ${quote_free:,.2f} {self.ex.quote} free "
+                           f"but the bot expects ${b['quote']:,.2f}")
         if base_free < b["base"] * 0.99:
-            raise BotError(f"Kraken has {base_free} {self.ex.base} free but the bot expects {b['base']}")
+            raise BotError(f"{self.cfg.exchange_name} has {base_free} {self.ex.base} free "
+                           f"but the bot expects {b['base']}")
 
     def _rebalance(self, plan, price):
         """Buy or sell at market so we hold exactly the coins the sell orders need."""

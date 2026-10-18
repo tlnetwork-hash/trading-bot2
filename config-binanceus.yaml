@@ -1,0 +1,62 @@
+# Settings for the second bot, which trades on Binance.US. It is the same as
+# config.yaml except for the exchange and fees, so the two can be compared.
+# After editing, restart it:  docker compose restart bot-binanceus
+#
+# Changes to the "grid" section only take effect the next time the grid is
+# built (first start, "resume", or "reset").
+
+# paper = simulated trades on real Binance.US prices (no money at risk)
+# live  = real orders on your Binance.US account
+mode: paper
+
+# Which exchange: kraken or binanceus.
+exchange: binanceus
+
+symbol: SOL/USD
+
+# How many US dollars the bot is allowed to use. It never touches more than
+# this, even if your Binance.US account holds more.
+capital_usd: 400
+
+grid:
+  timeframe: 1h          # candle size used to measure volatility
+  atr_period: 14         # number of candles in the volatility average (ATR)
+  atr_multiplier: 6      # grid reaches this many ATRs above and below the price
+  min_range_pct: 5       # ...but always at least +/-5%
+  max_range_pct: 20      # ...and never more than +/-20%
+  min_spacing_pct: 1.0   # minimum gap between grid lines; must beat 2x maker fee
+  max_levels: 20         # maximum number of grid lines
+  fee_reserve_pct: 2     # % of capital kept aside for fees and rounding
+
+# Binance.US fees: 0% maker / 0.02% taker on all pairs for every account
+# (since April 2026). Check https://www.binance.us/fees
+fees:
+  maker_pct: 0.0
+  taker_pct: 0.02
+
+risk:
+  # Kill switch: if the bot's money falls this % below where it started,
+  # cancel all orders, stop trading, and email you.
+  max_drawdown_pct: 10
+  # What to do when the price leaves the grid range:
+  #   pause    = cancel orders, stop, and email you (you then run "resume")
+  #   recenter = automatically rebuild the grid around the new price
+  breakout_action: pause
+
+loop:
+  poll_seconds: 30       # how often to check prices and orders
+
+alerts:
+  email_on_every_fill: true
+  daily_summary_hour_utc: 13      # 13:00 UTC = 9am New York (summer time)
+  error_email_cooldown_minutes: 30
+
+paper:
+  slippage_pct: 0.05     # extra price penalty on simulated market orders
+
+# Buttons at the top of the dashboard for switching between the bots'
+# dashboards. Each one is the same server address on a different port.
+dashboard:
+  links:
+    - {label: Kraken, port: 8080}
+    - {label: Binance.US, port: 8081}

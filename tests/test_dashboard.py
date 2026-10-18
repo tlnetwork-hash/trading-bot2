@@ -40,6 +40,8 @@ def test_snapshot(make_bot, cfg):
     bot = run_some_trades(make_bot)
     snap = snapshot(cfg)
     assert snap["status"] == "running" and snap["mode"] == "paper"
+    assert snap["exchange"] == "kraken" and snap["exchange_name"] == "Kraken"
+    assert snap["service"] == "bot" and snap["links"] == []
     assert snap["kill_floor"] == 360
     assert snap["equity"] == bot.equity(bot.state["last_price"])
     assert len(snap["orders"]) == len(snap["grid"]["levels"]) - 1

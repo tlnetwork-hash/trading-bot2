@@ -33,19 +33,20 @@ CANDLE_CACHE_SECONDS = 10
 
 
 class CandleSource:
-    """Fetches price candles from Kraken's public API, cached so that several
-    open browser tabs don't multiply requests to Kraken."""
+    """Fetches price candles from the exchange's public API, cached so that
+    several open browser tabs don't multiply requests to the exchange."""
 
-    def __init__(self, symbol, fetch_ohlcv=None):
+    def __init__(self, symbol, fetch_ohlcv=None, exchange="kraken"):
         self.symbol = symbol
+        self.exchange = exchange
         self._fetch = fetch_ohlcv
         self._cache = {}
         self._lock = threading.Lock()
 
     def _fetch_ohlcv(self, timeframe, limit):
         if self._fetch is None:
-            import ccxt
-            client = ccxt.kraken({"enableRateLimit": True, "timeout": 15000})
+            from .exchange import make_client
+            client = make_client(self.exchange, timeout=15000)
             self._fetch = lambda tf, n: client.fetch_ohlcv(self.symbol, tf, limit=n)
         return self._fetch(timeframe, limit)
 
@@ -63,7 +64,7 @@ class CandleSource:
                 log.warning("could not fetch candles: %s", e)
                 if cached:
                     return cached[1]  # better a slightly old chart than none
-                return {"error": "could not reach Kraken for price data"}
+                return {"error": "could not reach the exchange for price data"}
             result = {
                 "symbol": self.symbol,
                 "range": range_name,
@@ -94,6 +95,10 @@ def snapshot(cfg):
         age = None
     return {
         "mode": state["mode"],
+        "exchange": cfg.exchange,
+        "exchange_name": cfg.exchange_name,
+        "links": cfg.dashboard_links,
+        "service": os.environ.get("BOT_SERVICE", "bot"),  # docker compose service name
         "symbol": state["symbol"],
         "status": state["status"],
         "status_reason": state["status_reason"],
@@ -116,7 +121,7 @@ def snapshot(cfg):
 
 
 def make_handler(cfg, candles=None):
-    candles = candles or CandleSource(cfg.symbol)
+    candles = candles or CandleSource(cfg.symbol, exchange=cfg.exchange)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):

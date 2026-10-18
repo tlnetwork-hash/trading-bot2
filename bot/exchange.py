@@ -1,8 +1,9 @@
-"""Talking to Kraken (live) or simulating Kraken (paper).
+"""Talking to the exchange (live) or simulating it (paper).
 
 Both classes expose the same methods, so the trading logic never needs to
 know which mode it is running in. Paper mode still reads real prices and
-market rules from Kraken's public API; it just never sends orders.
+market rules from the exchange's public API; it just never sends orders.
+The exchange is any ccxt id listed in config.EXCHANGES (kraken, binanceus).
 """
 
 import time
@@ -20,6 +21,10 @@ class OrderInfo:
     fee_currency: str = ""
 
 
+def make_client(exchange, **options):
+    return getattr(ccxt, exchange)({"enableRateLimit": True, "timeout": 30000, **options})
+
+
 def _order_info(order, fallback_price):
     fee = order.get("fee") or {}
     status = order.get("status") or "open"
@@ -35,10 +40,10 @@ def _order_info(order, fallback_price):
 
 
 class MarketData:
-    """Public, read-only Kraken data: prices, candles and order size rules."""
+    """Public, read-only exchange data: prices, candles and order size rules."""
 
-    def __init__(self, symbol, client=None):
-        self.client = client or ccxt.kraken({"enableRateLimit": True, "timeout": 30000})
+    def __init__(self, symbol, client=None, exchange="kraken"):
+        self.client = client or make_client(exchange)
         self.symbol = symbol
         self.client.load_markets()
         self.market = self.client.market(symbol)
@@ -65,17 +70,12 @@ class MarketData:
 
 
 class LiveExchange(MarketData):
-    def __init__(self, symbol, api_key, api_secret, client=None):
-        client = client or ccxt.kraken({
-            "apiKey": api_key,
-            "secret": api_secret,
-            "enableRateLimit": True,
-            "timeout": 30000,
-        })
+    def __init__(self, symbol, api_key, api_secret, client=None, exchange="kraken"):
+        client = client or make_client(exchange, apiKey=api_key, secret=api_secret)
         super().__init__(symbol, client)
 
     def simulate(self, price):
-        pass  # real orders are filled by Kraken
+        pass  # real orders are filled by the exchange
 
     def create_limit_order(self, side, price, amount):
         return self.client.create_order(self.symbol, "limit", side, amount, price)["id"]
@@ -97,7 +97,7 @@ class LiveExchange(MarketData):
 
     def market_order(self, side, amount, ref_price):
         order = self.client.create_order(self.symbol, "market", side, amount)
-        # Kraken confirms market orders asynchronously; wait for the fill details.
+        # Some exchanges (Kraken) confirm market orders asynchronously; wait for the fill.
         for _ in range(10):
             info = self.fetch_order(order["id"])
             if info.status != "open":
@@ -117,8 +117,8 @@ class PaperExchange(MarketData):
     """Simulates orders against live prices. `book` is saved with the bot state
     so simulated orders survive restarts."""
 
-    def __init__(self, symbol, book, fees, slippage_pct, client=None):
-        super().__init__(symbol, client)
+    def __init__(self, symbol, book, fees, slippage_pct, client=None, exchange="kraken"):
+        super().__init__(symbol, client, exchange)
         self.book = book
         self.fees = fees
         self.slippage_pct = slippage_pct

@@ -24,6 +24,10 @@ h1 { font-size: 20px; margin: 0; font-weight: 650; }
   border: 1px solid var(--border); background: var(--surface); color: var(--text-2); }
 .status { display: inline-flex; align-items: center; gap: 6px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; }
+.switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; }
+.switch a { font-size: 12px; padding: 3px 10px; border-radius: 6px; color: var(--text-2); text-decoration: none; }
+.switch a[aria-current="page"] { background: var(--text); color: var(--surface); font-weight: 600; }
+.switch:empty { display: none; }
 .updated { margin-left: auto; color: var(--text-3); font-size: 12px; }
 .banner { border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; border: 1px solid var(--border);
   background: var(--surface); border-left: 4px solid var(--warning); }
@@ -81,6 +85,7 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
 <main>
   <header>
     <h1 id="title">Grid Bot</h1>
+    <nav class="switch" id="switch" aria-label="Switch exchange dashboard"></nav>
     <span class="badge" id="mode">-</span>
     <span class="badge status" id="status"><span class="dot"></span><span>-</span></span>
     <span class="updated" id="updated">loading...</span>
@@ -97,7 +102,7 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
 
   <section class="card price-card">
     <h2><span id="pc-symbol">Price</span> <span class="pc-last" id="pc-last"></span> <span class="pc-chg" id="pc-chg"></span>
-      <span class="live" id="live" title="Live prices stream straight from Kraken to your browser"><span class="dot"></span><span>connecting</span></span>
+      <span class="live" id="live" title="Live prices stream straight from the exchange to your browser"><span class="dot"></span><span>connecting</span></span>
       <span class="ranges" role="group" aria-label="Price chart range" id="pc-ranges">
         <button data-prange="1h">1H</button><button data-prange="6h">6H</button><button data-prange="24h">24H</button><button data-prange="7d">7D</button><button data-prange="30d">30D</button>
       </span>
@@ -169,8 +174,10 @@ function timeLabel(iso, withDate) {
 function render() {
   const d = data;
   const base = d.symbol.split("/")[0];
-  $("title").textContent = d.symbol + " Grid Bot";
-  document.title = d.symbol + " grid - " + usd(d.equity);
+  $("title").textContent = d.exchange_name + " " + d.symbol;
+  document.title = d.exchange_name + " grid - " + usd(d.equity);
+  renderSwitch(d);
+  $("live").title = "Live prices stream straight from " + d.exchange_name + " to your browser";
   $("mode").textContent = d.mode.toUpperCase();
   const [label, color] = STATUS[d.status] || [d.status, "--text-3"];
   $("status").querySelector(".dot").style.background = css(color);
@@ -183,7 +190,7 @@ function render() {
   if (age != null && age > 180)
     banners += `<div class="banner critical"><b>The bot hasn't saved anything in ${Math.round(age / 60)} minutes.</b> It may be stopped. Check with <code>docker compose ps</code>.</div>`;
   if (d.status === "paused")
-    banners += `<div class="banner"><b>Paused:</b> ${esc(d.status_reason)}. Resume with <code>docker compose exec bot python -m bot resume</code></div>`;
+    banners += `<div class="banner"><b>Paused:</b> ${esc(d.status_reason)}. Resume with <code>docker compose exec ${esc(d.service)} python -m bot resume</code></div>`;
   if (d.status === "halted")
     banners += `<div class="banner critical"><b>Kill switch triggered:</b> ${esc(d.status_reason)}</div>`;
   $("banners").innerHTML = banners;
@@ -205,6 +212,17 @@ function render() {
   renderStats(base);
   renderTrades(base);
   renderChart();
+}
+
+// Links to the other bots' dashboards: same server name, different port.
+function renderSwitch(d) {
+  const nav = $("switch");
+  if (nav.childElementCount || !d.links || !d.links.length) return;
+  const here = Number(location.port) || (location.protocol === "https:" ? 443 : 80);
+  nav.innerHTML = d.links.map((l) => {
+    const href = location.protocol + "//" + location.hostname + ":" + l.port + "/";
+    return `<a href="${esc(href)}"${l.port === here ? ' aria-current="page"' : ""}>${esc(l.label)}</a>`;
+  }).join("");
 }
 
 function sideCell(side) {
@@ -332,7 +350,7 @@ const CANDLE_MS = { "1h": 60e3, "6h": 300e3, "24h": 900e3, "7d": 3600e3, "30d": 
 let pRange = "24h";
 try { pRange = localStorage.getItem("prange") || "24h"; } catch (e) {}
 if (!CANDLE_MS[pRange]) pRange = "24h";
-let candles = [], candleCount = 0, livePrice = null, liveOn = false, ws = null, wsSymbol = null, drawQueued = false;
+let candles = [], candleCount = 0, livePrice = null, liveOn = false, ws = null, wsFeed = null, drawQueued = false;
 
 function setLive(on) {
   liveOn = on;
@@ -371,15 +389,28 @@ async function loadCandles() {
   } catch (e) {}
 }
 
-function connectLive(symbol) {
-  if (ws || !symbol) return;
-  wsSymbol = symbol;
-  try { ws = new WebSocket("wss://ws.kraken.com/v2"); } catch (e) { setLive(false); return; }
-  ws.onopen = () => ws.send(JSON.stringify({ method: "subscribe", params: { channel: "ticker", symbol: [symbol] } }));
+// Each exchange's public trade stream, reduced to "the last traded price".
+const FEEDS = {
+  kraken: (symbol) => ({
+    url: "wss://ws.kraken.com/v2",
+    subscribe: { method: "subscribe", params: { channel: "ticker", symbol: [symbol] } },
+    price: (m) => (m.channel === "ticker" && m.data && m.data[0] ? Number(m.data[0].last) : NaN),
+  }),
+  binanceus: (symbol) => ({
+    url: "wss://stream.binance.us:9443/ws/" + symbol.replace("/", "").toLowerCase() + "@trade",
+    price: (m) => (m.e === "trade" ? Number(m.p) : NaN),
+  }),
+};
+
+function connectLive(exchange, symbol) {
+  if (ws || !symbol || !FEEDS[exchange]) return;
+  wsFeed = [exchange, symbol];
+  const feed = FEEDS[exchange](symbol);
+  try { ws = new WebSocket(feed.url); } catch (e) { setLive(false); return; }
+  if (feed.subscribe) ws.onopen = () => ws.send(JSON.stringify(feed.subscribe));
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-    if (m.channel !== "ticker" || !m.data || !m.data[0]) return;
-    const last = Number(m.data[0].last);
+    const last = feed.price(m);
     if (!isFinite(last)) return;
     if (!liveOn) setLive(true);
     livePrice = last;
@@ -387,7 +418,7 @@ function connectLive(symbol) {
     $("price").textContent = usd(last);
     queueDraw();
   };
-  ws.onclose = () => { ws = null; setLive(false); setTimeout(() => connectLive(wsSymbol), 5000); };
+  ws.onclose = () => { ws = null; setLive(false); setTimeout(() => connectLive(...wsFeed), 5000); };
   ws.onerror = () => { try { ws.close(); } catch (e) {} };
 }
 
@@ -511,7 +542,7 @@ async function refresh() {
     if (res.ok) {
       const body = await res.json();
       if (body.error) { $("updated").textContent = body.error; }
-      else { data = body; render(); connectLive(data.symbol); renderPriceChart(); }
+      else { data = body; render(); connectLive(data.exchange, data.symbol); renderPriceChart(); }
     }
   } catch (e) {
     $("updated").textContent = "dashboard unreachable - retrying";
