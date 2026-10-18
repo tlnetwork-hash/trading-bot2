@@ -31,3 +31,34 @@ services:
     ports:
       - "${DASHBOARD_BIND:-127.0.0.1}:8080:8080"
     logging: *logging
+
+  # Second bot: same strategy on Binance.US, with its own settings
+  # (config-binanceus.yaml), its own data folder, and its own dashboard on
+  # port 8081. Its commands use its service name, e.g.
+  #   docker compose exec bot-binanceus python -m bot status
+  bot-binanceus:
+    image: grid-bot
+    container_name: grid-bot-binanceus
+    restart: unless-stopped
+    depends_on: [bot]              # bot builds the shared image
+    env_file: .env
+    volumes:
+      - ./config-binanceus.yaml:/app/config.yaml:ro
+      - ./data-binanceus:/app/data
+    logging: *logging
+
+  dashboard-binanceus:
+    image: grid-bot
+    container_name: grid-bot-binanceus-dashboard
+    command: ["python", "-m", "bot", "dashboard"]
+    restart: unless-stopped
+    depends_on: [bot-binanceus]
+    env_file: .env
+    environment:
+      BOT_SERVICE: bot-binanceus   # shown in the dashboard's help text
+    volumes:
+      - ./config-binanceus.yaml:/app/config.yaml:ro
+      - ./data-binanceus:/app/data:ro
+    ports:
+      - "${DASHBOARD_BIND:-127.0.0.1}:8081:8080"
+    logging: *logging

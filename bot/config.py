@@ -11,6 +11,10 @@ class ConfigError(Exception):
     pass
 
 
+# ccxt exchange id -> name shown in alerts and on the dashboard
+EXCHANGES = {"kraken": "Kraken", "binanceus": "Binance.US"}
+
+
 @dataclass
 class GridConfig:
     timeframe: str = "1h"
@@ -68,6 +72,7 @@ class EmailSecrets:
 @dataclass
 class Config:
     mode: str = "paper"
+    exchange: str = "kraken"
     symbol: str = "SOL/USD"
     capital_usd: float = 400.0
     poll_seconds: int = 30
@@ -77,11 +82,21 @@ class Config:
     risk: RiskConfig = field(default_factory=RiskConfig)
     alerts: AlertConfig = field(default_factory=AlertConfig)
     email: EmailSecrets = field(default_factory=EmailSecrets)
-    kraken_api_key: str = ""
-    kraken_api_secret: str = ""
+    api_key: str = ""
+    api_secret: str = ""
     ntfy_topic: str = ""
     ntfy_server: str = "https://ntfy.sh"
     data_dir: Path = Path("data")
+    dashboard_links: list = field(default_factory=list)  # [{"label": ..., "port": ...}]
+
+    @property
+    def exchange_name(self):
+        return EXCHANGES.get(self.exchange, self.exchange)
+
+    @property
+    def env_prefix(self):
+        """Prefix of this exchange's API key variables in .env, e.g. KRAKEN_API_KEY."""
+        return self.exchange.upper()
 
     @property
     def ntfy_url(self):
@@ -106,6 +121,8 @@ class Config:
     def validate(self):
         if self.mode not in ("paper", "live"):
             raise ConfigError("mode must be 'paper' or 'live'")
+        if self.exchange not in EXCHANGES:
+            raise ConfigError(f"exchange must be one of: {', '.join(EXCHANGES)}")
         if self.capital_usd <= 0:
             raise ConfigError("capital_usd must be positive")
         if self.risk.breakout_action not in ("pause", "recenter"):
@@ -122,8 +139,12 @@ class Config:
                 f"grid.min_spacing_pct ({self.grid.min_spacing_pct}%) must be larger than "
                 f"2x the maker fee ({2 * self.fees.maker_pct}%) or every trade loses money"
             )
-        if self.mode == "live" and not (self.kraken_api_key and self.kraken_api_secret):
-            raise ConfigError("live mode needs KRAKEN_API_KEY and KRAKEN_API_SECRET in .env")
+        if self.mode == "live" and not (self.api_key and self.api_secret):
+            raise ConfigError(f"live mode needs {self.env_prefix}_API_KEY and "
+                              f"{self.env_prefix}_API_SECRET in .env")
+        for link in self.dashboard_links:
+            if not isinstance(link, dict) or not link.get("label") or not isinstance(link.get("port"), int):
+                raise ConfigError("each dashboard link needs a label and a port number")
 
 
 def _section(cls, raw):
@@ -142,8 +163,11 @@ def load_config(path="config.yaml", env=None):
     except FileNotFoundError:
         raise ConfigError(f"config file not found: {path}")
 
+    exchange = str(raw.get("exchange", "kraken")).lower()
+    prefix = exchange.upper()
     cfg = Config(
         mode=str(raw.get("mode", "paper")).lower(),
+        exchange=exchange,
         symbol=raw.get("symbol", "SOL/USD"),
         capital_usd=float(raw.get("capital_usd", 400)),
         poll_seconds=int((raw.get("loop") or {}).get("poll_seconds", 30)),
@@ -158,11 +182,12 @@ def load_config(path="config.yaml", env=None):
             to_address=env.get("ALERT_EMAIL_TO", "").strip() or env.get("GMAIL_ADDRESS", "").strip(),
             brevo_api_key=env.get("BREVO_API_KEY", "").strip(),
         ),
-        kraken_api_key=env.get("KRAKEN_API_KEY", "").strip(),
-        kraken_api_secret=env.get("KRAKEN_API_SECRET", "").strip(),
+        api_key=env.get(f"{prefix}_API_KEY", "").strip(),
+        api_secret=env.get(f"{prefix}_API_SECRET", "").strip(),
         ntfy_topic=env.get("NTFY_TOPIC", "").strip(),
         ntfy_server=env.get("NTFY_SERVER", "").strip() or "https://ntfy.sh",
         data_dir=Path(env.get("BOT_DATA_DIR", "data")),
+        dashboard_links=list((raw.get("dashboard") or {}).get("links") or []),
     )
     cfg.validate()
     return cfg

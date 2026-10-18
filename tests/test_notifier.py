@@ -106,3 +106,46 @@ def test_ntfy_topic_from_env(tmp_path):
     assert cfg.ntfy_url == "https://ntfy.sh/gridbot-xyz"
     cfg = load_config(path, env={"NTFY_TOPIC": "t", "NTFY_SERVER": "https://ntfy.example.com/"})
     assert cfg.ntfy_url == "https://ntfy.example.com/t"
+
+
+def test_exchange_choice_and_keys_from_env(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("mode: paper\n")
+    cfg = load_config(path, env={"KRAKEN_API_KEY": "k1", "BINANCEUS_API_KEY": "b1"})
+    assert cfg.exchange == "kraken" and cfg.exchange_name == "Kraken" and cfg.api_key == "k1"
+    path.write_text("mode: paper\nexchange: binanceus\n")
+    cfg = load_config(path, env={"KRAKEN_API_KEY": "k1", "BINANCEUS_API_KEY": "b1"})
+    assert cfg.exchange_name == "Binance.US" and cfg.api_key == "b1"
+
+
+def test_bad_exchange_and_live_without_keys(tmp_path):
+    import pytest
+    from bot.config import ConfigError
+    path = tmp_path / "config.yaml"
+    path.write_text("exchange: coinbase\n")
+    with pytest.raises(ConfigError, match="exchange must be"):
+        load_config(path, env={})
+    path.write_text("mode: live\nexchange: binanceus\n")
+    with pytest.raises(ConfigError, match="BINANCEUS_API_KEY"):
+        load_config(path, env={"KRAKEN_API_KEY": "k", "KRAKEN_API_SECRET": "s"})
+
+
+def test_dashboard_links(tmp_path):
+    import pytest
+    from bot.config import ConfigError
+    path = tmp_path / "config.yaml"
+    path.write_text("dashboard:\n  links:\n    - {label: Kraken, port: 8080}\n")
+    assert load_config(path, env={}).dashboard_links == [{"label": "Kraken", "port": 8080}]
+    path.write_text("dashboard:\n  links:\n    - {label: Kraken}\n")
+    with pytest.raises(ConfigError, match="dashboard link"):
+        load_config(path, env={})
+
+
+def test_shipped_configs_load():
+    from pathlib import Path
+    root = Path(__file__).parent.parent
+    kraken = load_config(root / "config.yaml", env={})
+    binance = load_config(root / "config-binanceus.yaml", env={})
+    assert (kraken.exchange, binance.exchange) == ("kraken", "binanceus")
+    assert binance.fees.maker_pct == 0 and kraken.fees.maker_pct == 0.40
+    assert kraken.dashboard_links == binance.dashboard_links

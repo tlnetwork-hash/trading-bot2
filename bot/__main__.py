@@ -1,7 +1,7 @@
 """Command line entry point.
 
     python -m bot            run the bot (this is what Docker runs)
-    python -m bot check      test the Kraken connection and send a test email
+    python -m bot check      test the exchange connection and send test alerts
     python -m bot status     show what the bot is doing
     python -m bot pause      cancel all orders and stop trading
     python -m bot resume     build a fresh grid and start trading again
@@ -43,19 +43,22 @@ def setup_logging(cfg):
 
 def make_exchange(cfg, state):
     if cfg.mode == "live":
-        return LiveExchange(cfg.symbol, cfg.kraken_api_key, cfg.kraken_api_secret)
-    return PaperExchange(cfg.symbol, state["paper"], cfg.fees, cfg.paper_slippage_pct)
+        return LiveExchange(cfg.symbol, cfg.api_key, cfg.api_secret, exchange=cfg.exchange)
+    return PaperExchange(cfg.symbol, state["paper"], cfg.fees, cfg.paper_slippage_pct,
+                         exchange=cfg.exchange)
 
 
 def make_notifier(cfg):
-    return Notifier(cfg.email, f"{cfg.symbol.split('/')[0]} grid {cfg.mode}", cfg.ntfy_url)
+    prefix = f"{cfg.symbol.split('/')[0]} grid {cfg.mode} ({cfg.exchange_name})"
+    return Notifier(cfg.email, prefix, cfg.ntfy_url)
 
 
 def run(cfg):
     setup_logging(cfg)
-    log.info("starting in %s mode on %s with $%.2f", cfg.mode.upper(), cfg.symbol, cfg.capital_usd)
+    log.info("starting in %s mode on %s %s with $%.2f",
+             cfg.mode.upper(), cfg.exchange_name, cfg.symbol, cfg.capital_usd)
     if cfg.mode == "live":
-        log.warning("LIVE MODE: real orders will be placed on Kraken")
+        log.warning("LIVE MODE: real orders will be placed on %s", cfg.exchange_name)
 
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
@@ -68,13 +71,13 @@ def run(cfg):
         log.info("no saved state found, starting fresh")
     notifier = make_notifier(cfg)
 
-    # Kraken can be briefly unreachable when the server boots; keep trying.
+    # The exchange can be briefly unreachable when the server boots; keep trying.
     while not stop.is_set():
         try:
             exchange = make_exchange(cfg, state)
             break
         except ccxt.NetworkError as e:
-            log.warning("cannot connect to Kraken yet (%s), retrying in 30s", e)
+            log.warning("cannot connect to %s yet (%s), retrying in 30s", cfg.exchange_name, e)
             stop.wait(30)
     else:
         return
@@ -83,16 +86,17 @@ def run(cfg):
 
 
 def check(cfg):
-    print(f"Config OK: {cfg.mode.upper()} mode, {cfg.symbol}, ${cfg.capital_usd:,.2f}")
-    market = MarketData(cfg.symbol)
-    print(f"Kraken reachable: {cfg.symbol} = ${market.price():,.2f} "
+    name = cfg.exchange_name
+    print(f"Config OK: {cfg.mode.upper()} mode, {name} {cfg.symbol}, ${cfg.capital_usd:,.2f}")
+    market = MarketData(cfg.symbol, exchange=cfg.exchange)
+    print(f"{name} reachable: {cfg.symbol} = ${market.price():,.2f} "
           f"(min order {market.min_amount} {market.base})")
-    if cfg.kraken_api_key:
-        live = LiveExchange(cfg.symbol, cfg.kraken_api_key, cfg.kraken_api_secret)
+    if cfg.api_key:
+        live = LiveExchange(cfg.symbol, cfg.api_key, cfg.api_secret, exchange=cfg.exchange)
         base_free, quote_free = live.free_balance()
-        print(f"Kraken API key works: ${quote_free:,.2f} {live.quote} and {base_free} {live.base} available")
+        print(f"{name} API key works: ${quote_free:,.2f} {live.quote} and {base_free} {live.base} available")
     else:
-        print("No Kraken API key set (fine for paper mode)")
+        print(f"No {name} API key set (fine for paper mode)")
     notifier = make_notifier(cfg)
     if cfg.ntfy_url:
         ok = notifier._attempt("ntfy", notifier._send_ntfy, "Test alert",
@@ -131,7 +135,7 @@ def send_command(cfg, command):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="python -m bot", description="Kraken grid trading bot")
+    parser = argparse.ArgumentParser(prog="python -m bot", description="Grid trading bot")
     parser.add_argument("command", nargs="?", default="run",
                         choices=["run", "check", "status", "pause", "resume", "reset", "dashboard"])
     parser.add_argument("--config", default="config.yaml")
@@ -151,11 +155,11 @@ def main(argv=None):
         try:
             check(cfg)
         except ccxt.AuthenticationError as e:
-            sys.exit(f"Kraken rejected the API key/secret: {e}")
+            sys.exit(f"{cfg.exchange_name} rejected the API key/secret: {e}")
         except ccxt.PermissionDenied as e:
-            sys.exit(f"Kraken API key is missing a permission (see README step 5): {e}")
+            sys.exit(f"{cfg.exchange_name} API key is missing a permission (see README step 5): {e}")
         except ccxt.NetworkError as e:
-            sys.exit(f"Cannot reach Kraken from this server: {e}")
+            sys.exit(f"Cannot reach {cfg.exchange_name} from this server: {e}")
     elif args.command == "status":
         status(cfg)
     elif args.command == "dashboard":

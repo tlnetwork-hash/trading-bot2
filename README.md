@@ -273,6 +273,25 @@ The chart gets a new point every 5 minutes, so give it a little while after star
 Equity history and the trade log are saved in `data/history-<mode>.jsonl` and
 `data/trades-<mode>.jsonl`.
 
+### Second bot on Binance.US
+
+A second paper bot runs the same strategy on Binance.US, so you can compare the two
+exchanges side by side. Binance.US charges 0% on the limit orders a grid uses, against 0.40%
+on Kraken, so the same trades keep more profit.
+
+| | Kraken bot | Binance.US bot |
+|---|---|---|
+| Settings | `config.yaml` | `config-binanceus.yaml` |
+| Saved data | `data/` | `data-binanceus/` |
+| Dashboard | `http://<tailscale-ip>:8080` | `http://<tailscale-ip>:8081` |
+| Commands | `docker compose exec bot python -m bot status` | `docker compose exec bot-binanceus python -m bot status` |
+
+The buttons at the top of each dashboard switch between them; edit `dashboard: links:` in
+both settings files to change them. Phone alerts from each bot name their exchange, e.g.
+`SOL grid paper (Binance.US): BUY filled`. To go live on Binance.US later, put a key in
+`BINANCEUS_API_KEY` / `BINANCEUS_API_SECRET` (trading only, never withdrawals) and set
+`mode: live` in `config-binanceus.yaml`.
+
 ### Phone alerts (ntfy)
 
 The quickest alerts come from **ntfy**, a free phone notification app with no account needed.

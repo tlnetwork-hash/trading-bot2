@@ -85,6 +85,6 @@ def plan_grid(price, range_pct, equity, grid_cfg, min_amount, min_cost, round_am
         steps -= 1
 
     raise GridError(
-        f"${equity:.2f} is too little for a grid: Kraken needs at least {min_amount} coins "
+        f"${equity:.2f} is too little for a grid: the exchange needs at least {min_amount} coins "
         f"(${min_cost}) per order. Increase capital_usd or widen min_range_pct."
     )

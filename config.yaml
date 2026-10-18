@@ -7,6 +7,10 @@
 # live  = real orders on your Kraken account
 mode: paper
 
+# Which exchange: kraken or binanceus. The Binance.US bot has its own file,
+# config-binanceus.yaml.
+exchange: kraken
+
 symbol: SOL/USD
 
 # How many US dollars the bot is allowed to use. It never touches more than
@@ -49,3 +53,10 @@ alerts:
 
 paper:
   slippage_pct: 0.05     # extra price penalty on simulated market orders
+
+# Buttons at the top of the dashboard for switching between the bots'
+# dashboards. Each one is the same server address on a different port.
+dashboard:
+  links:
+    - {label: Kraken, port: 8080}
+    - {label: Binance.US, port: 8081}
