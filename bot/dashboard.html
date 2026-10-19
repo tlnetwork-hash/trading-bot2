@@ -53,6 +53,14 @@ h1 { font-size: 20px; margin: 0; font-weight: 650; }
   border: 1px solid var(--border); background: transparent; color: var(--text-2); }
 .ranges button[aria-pressed="true"] { background: var(--text); color: var(--surface); border-color: var(--text); }
 .chart-wrap { position: relative; }
+#pchart { touch-action: pan-y; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+#pchart.dragging { cursor: grabbing; }
+.zoombar { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--text-3); }
+.zoombar button { font: inherit; font-size: 15px; font-weight: 600; min-width: 34px; height: 30px; padding: 0 10px;
+  border-radius: 7px; border: 1px solid var(--border); background: transparent; color: var(--text-2); cursor: pointer; }
+.zoombar button:disabled { opacity: 0.35; cursor: default; }
+.zoombar #zfit { font-size: 12px; }
+.zoombar .hint { margin-left: auto; text-align: right; }
 svg { display: block; width: 100%; overflow: visible; }
 svg text { fill: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
 .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
@@ -124,6 +132,11 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
     <div class="chart-wrap">
       <svg id="pchart" height="320" role="img" aria-label="Price candles with the bot's orders and trades"></svg>
       <div class="tip" id="ptip"></div>
+    </div>
+    <div class="zoombar">
+      <button id="zout" aria-label="Zoom out">−</button><button id="zin" aria-label="Zoom in">+</button><button id="zfit">Fit</button>
+      <span id="zinfo"></span>
+      <span class="hint" id="zhint">Pinch or scroll to zoom · drag to move · double-tap to fit</span>
     </div>
     <div class="legend">
       <span><svg width="10" height="14"><line x1="5" x2="5" y1="0" y2="14" stroke="var(--text-2)"/><rect x="1" y="3" width="8" height="8" fill="var(--surface)" stroke="var(--text-2)"/></svg>up candle</span>
@@ -391,6 +404,42 @@ try { pRange = localStorage.getItem("prange") || "24h"; } catch (e) {}
 if (!CANDLE_MS[pRange]) pRange = "24h";
 let candles = [], candleCount = 0, livePrice = null, liveOn = false, ws = null, wsFeed = null, drawQueued = false;
 
+// Zoom: how many candles are on screen (0 = all) and how many newer candles are
+// scrolled off the right edge (0 = following the live price).
+const MIN_VISIBLE = 8;
+let zoomCount = 0, zoomBack = 0, chartGeom = null;
+
+function visibleRange() {
+  const n = candles.length;
+  const count = zoomCount ? Math.min(Math.max(zoomCount, MIN_VISIBLE), n) : n;
+  const back = Math.max(0, Math.min(zoomBack, n - count));
+  return [n - back - count, n - back];   // [start, end)
+}
+
+function setZoom(count, back) {
+  const n = candles.length;
+  count = Math.round(Math.min(Math.max(count, MIN_VISIBLE), n));
+  zoomCount = count >= n ? 0 : count;
+  zoomBack = zoomCount ? Math.round(Math.max(0, Math.min(back, n - count))) : 0;
+  queueDraw();
+}
+
+// Zoom by `factor` (< 1 zooms in) keeping the candle under clientX in place.
+// While following the live price, the newest candle stays pinned to the right.
+function zoomAt(factor, clientX) {
+  const [a, b] = visibleRange(), count = b - a;
+  let anchor = 0.5;
+  if (zoomBack === 0) anchor = 1;
+  else if (chartGeom && clientX != null) {
+    const r = $("pchart").getBoundingClientRect();
+    anchor = Math.max(0, Math.min(1, (clientX - r.left - chartGeom.L) / chartGeom.pw));
+  }
+  const newCount = Math.min(Math.max(count * factor, MIN_VISIBLE), candles.length);
+  const center = a + anchor * count;
+  const newStart = center - anchor * newCount;
+  setZoom(newCount, candles.length - (newStart + newCount));
+}
+
 function setLive(on) {
   liveOn = on;
   const el = $("live");
@@ -489,19 +538,27 @@ function renderPriceChart() {
   }
   if (n < 2) { svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle">Loading price data...</text>`; return; }
 
+  const [va, vb] = visibleRange(), vis = candles.slice(va, vb), vn = vis.length;
+  const zoomed = vn < n;
   const orders = data ? data.orders : [];
   const below = orders.filter((o) => o.side === "buy" && o.price <= price).sort((a, b) => b.price - a.price)[0];
   const above = orders.filter((o) => o.side === "sell" && o.price >= price).sort((a, b) => a.price - b.price)[0];
-  let lo = Math.min(...candles.map((c) => c[3])), hi = Math.max(...candles.map((c) => c[2]));
-  if (below) lo = Math.min(lo, below.price);   // always show the next order on each side
-  if (above) hi = Math.max(hi, above.price);
+  let lo = Math.min(...vis.map((c) => c[3])), hi = Math.max(...vis.map((c) => c[2]));
+  if (!zoomed) {   // zoomed out: always show the next order on each side
+    if (below) lo = Math.min(lo, below.price);
+    if (above) hi = Math.max(hi, above.price);
+  }
   const pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
 
-  const pw = W - L - R, slot = pw / n, cw = Math.max(1, Math.min(14, slot * 0.68));
+  const pw = W - L - R, slot = pw / vn, cw = Math.max(1, Math.min(zoomed ? 28 : 14, slot * 0.68));
+  chartGeom = { L, pw, slot };
   const xc = (i) => L + (i + 0.5) * slot;
   const y = (v) => T + (hi - v) / (hi - lo) * (H - T - B);
-  const step = CANDLE_MS[pRange], t0 = candles[0][0];
+  const step = CANDLE_MS[pRange], t0 = vis[0][0];
   const xt = (t) => L + ((t - t0) / step + 0.5) * slot;
+  $("zinfo").textContent = zoomed ? `${vn} of ${n} candles` + (zoomBack ? " · not live" : "") : "";
+  $("zin").disabled = vn <= MIN_VISIBLE;
+  $("zout").disabled = $("zfit").disabled = !zoomed;
 
   let s = "";
   const yTicks = niceTicks(lo, hi, 5), tickDp = yTicks.length > 1 && yTicks[1] - yTicks[0] < 1 ? 2 : 0;
@@ -509,9 +566,9 @@ function renderPriceChart() {
     s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>`;
     s += `<text x="${W - R + 6}" y="${y(v) + 4}">${usd(v, tickDp)}</text>`;
   }
-  const ticks = W < 520 ? 2 : 4, longRange = pRange === "7d" || pRange === "30d";
+  const ticks = W < 520 ? 2 : 4, longRange = vis[vn - 1][0] - t0 > 36 * 3600e3;
   for (let k = 0; k <= ticks; k++) {
-    const i = Math.round((n - 1) * k / ticks), t = new Date(candles[i][0]);
+    const i = Math.round((vn - 1) * k / ticks), t = new Date(vis[i][0]);
     const lbl = longRange ? t.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : timeLabel(t, false);
     s += `<text x="${xc(i)}" y="${H - 6}" text-anchor="${k === 0 ? "start" : k === ticks ? "end" : "middle"}">${lbl}</text>`;
   }
@@ -522,12 +579,13 @@ function renderPriceChart() {
     s += `<line x1="${L}" x2="${W - R}" y1="${y(o.price)}" y2="${y(o.price)}" stroke="var(--${o.side})" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.85"/>`;
   }
   for (const [o, dy] of [[above, -5], [below, 13]]) {
-    if (o) s += `<text x="${L + 4}" y="${y(o.price) + dy}" style="fill:var(--text-2)">next ${o.side} ${usd(o.price)}</text>`;
+    if (o && o.price >= lo && o.price <= hi)
+      s += `<text x="${L + 4}" y="${y(o.price) + dy}" style="fill:var(--text-2)">next ${o.side} ${usd(o.price)}</text>`;
   }
 
   // candles: hollow = up, filled = down
-  for (let i = 0; i < n; i++) {
-    const [, o, h, l, c] = candles[i], up = c >= o, x = xc(i);
+  for (let i = 0; i < vn; i++) {
+    const [, o, h, l, c] = vis[i], up = c >= o, x = xc(i);
     s += `<line x1="${x}" x2="${x}" y1="${y(h)}" y2="${y(l)}" stroke="var(--text-2)"/>`;
     const top = y(Math.max(o, c)), ht = Math.max(1, Math.abs(y(o) - y(c)));
     s += `<rect x="${x - cw / 2}" y="${top}" width="${cw}" height="${ht}" fill="${up ? "var(--surface)" : "var(--text-2)"}" stroke="var(--text-2)" stroke-width="1"/>`;
@@ -536,28 +594,27 @@ function renderPriceChart() {
   // the bot's trades in this window
   if (data) for (const tr of data.trades) {
     const t = new Date(tr.t).getTime();
-    if (t < t0 || t > candles[n - 1][0] + step || tr.price < lo || tr.price > hi) continue;
-    const x = xt(Math.min(t, candles[n - 1][0])), yy = y(tr.price);
+    if (t < t0 || t > vis[vn - 1][0] + step || tr.price < lo || tr.price > hi) continue;
+    const x = xt(Math.min(t, vis[vn - 1][0])), yy = y(tr.price);
     s += tr.side === "buy"
       ? `<path d="M${x} ${yy + 3} l5 9 h-10 z" fill="var(--buy)" stroke="var(--surface)" stroke-width="1"><title>bought ${tr.amount.toFixed(4)} @ ${usd(tr.price)}</title></path>`
       : `<path d="M${x} ${yy - 3} l5 -9 h-10 z" fill="var(--sell)" stroke="var(--surface)" stroke-width="1"><title>sold ${tr.amount.toFixed(4)} @ ${usd(tr.price)}</title></path>`;
   }
 
-  // current price line + tag on the axis
-  s += `<line x1="${L}" x2="${W - R}" y1="${y(price)}" y2="${y(price)}" stroke="var(--price)" stroke-width="1"/>`;
-  s += `<rect x="${W - R + 2}" y="${y(price) - 9}" width="${R - 4}" height="18" rx="4" fill="var(--price)"/>`;
-  s += `<text x="${W - R + 6}" y="${y(price) + 4}" style="fill:var(--surface);font-weight:600">${usd(price)}</text>`;
+  // current price line + tag on the axis (also while scrolled back, as a reference)
+  if (price >= lo && price <= hi) s += `<line x1="${L}" x2="${W - R}" y1="${y(price)}" y2="${y(price)}" stroke="var(--price)" stroke-width="1"/>`;
+  if (price >= lo && price <= hi) {
+    s += `<rect x="${W - R + 2}" y="${y(price) - 9}" width="${R - 4}" height="18" rx="4" fill="var(--price)"/>`;
+    s += `<text x="${W - R + 6}" y="${y(price) + 4}" style="fill:var(--surface);font-weight:600">${usd(price)}</text>`;
+  }
 
   s += `<line id="pxhair" y1="${T}" y2="${H - B}" stroke="var(--text-3)" visibility="hidden"/>`;
-  s += `<rect x="${L}" y="${T}" width="${pw}" height="${H - T - B}" fill="transparent" id="phit"/>`;
   svg.innerHTML = s;
 
-  const hit = $("phit"), xh = $("pxhair");
-  hit.addEventListener("pointerleave", () => { xh.setAttribute("visibility", "hidden"); tip.style.display = "none"; });
-  hit.addEventListener("pointermove", (ev) => {
-    const r = svg.getBoundingClientRect();
-    const i = Math.max(0, Math.min(n - 1, Math.floor((ev.clientX - r.left - L) / slot)));
-    const [t, o, h, l, c] = candles[i], x = xc(i);
+  chartGeom.showTip = (ev) => {
+    const r = svg.getBoundingClientRect(), xh = $("pxhair");
+    const i = Math.max(0, Math.min(vn - 1, Math.floor((ev.clientX - r.left - L) / slot)));
+    const [t, o, h, l, c] = vis[i], x = xc(i);
     xh.setAttribute("x1", x); xh.setAttribute("x2", x); xh.setAttribute("visibility", "visible");
     tip.innerHTML = `<div class="muted">${timeLabel(new Date(t), true)}</div>` +
       `O ${usd(o)} &nbsp;H ${usd(h)}<br>L ${usd(l)} &nbsp;C <b>${usd(c)}</b><br>` +
@@ -565,8 +622,81 @@ function renderPriceChart() {
     tip.style.display = "block";
     tip.style.left = (x + 12 + tip.offsetWidth > W ? x - tip.offsetWidth - 12 : x + 12) + "px";
     tip.style.top = Math.max(ev.clientY - r.top - tip.offsetHeight - 10, 0) + "px";
-  });
+  };
 }
+
+function hideTip() {
+  const xh = $("pxhair");
+  if (xh) xh.setAttribute("visibility", "hidden");
+  $("ptip").style.display = "none";
+}
+
+// Zoom and pan gestures. Listeners sit on the <svg> itself, which survives redraws.
+(function () {
+  const svg = $("pchart"), pointers = new Map();
+  let drag = null, pinch = null, lastTap = 0;
+  const dist = () => { const [p, q] = [...pointers.values()]; return Math.hypot(p.x - q.x, p.y - q.y); };
+  const mid = () => { const [p, q] = [...pointers.values()]; return (p.x + q.x) / 2; };
+
+  svg.addEventListener("wheel", (ev) => {
+    if (!candles.length) return;
+    ev.preventDefault();
+    zoomAt(ev.deltaY > 0 ? 1.15 : 1 / 1.15, ev.clientX);
+  }, { passive: false });
+
+  svg.addEventListener("pointerdown", (ev) => {
+    pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    svg.setPointerCapture(ev.pointerId);
+    if (pointers.size === 2) {
+      const [a, b] = visibleRange();
+      pinch = { d: dist(), count: b - a, x: mid() };
+      drag = null;
+    } else if (pointers.size === 1) {
+      const [a, b] = visibleRange();
+      drag = { x: ev.clientX, back: zoomBack, count: b - a, moved: false };
+      const now = Date.now();
+      if (now - lastTap < 300) { setZoom(candles.length, 0); lastTap = 0; } else lastTap = now;
+    }
+  });
+
+  svg.addEventListener("pointermove", (ev) => {
+    if (pointers.has(ev.pointerId)) pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (pinch && pointers.size === 2) {
+      const factor = pinch.d / Math.max(dist(), 1);
+      const [a, b] = visibleRange();
+      zoomAt((pinch.count * factor) / (b - a), pinch.x);
+      hideTip();
+      return;
+    }
+    if (drag && chartGeom && Math.abs(ev.clientX - drag.x) > 4) {
+      drag.moved = true;
+      svg.classList.add("dragging");
+      hideTip();
+      if (zoomCount) setZoom(drag.count, drag.back + (ev.clientX - drag.x) / chartGeom.slot);
+      return;
+    }
+    if (chartGeom && chartGeom.showTip && (!drag || ev.pointerType === "mouse")) chartGeom.showTip(ev);
+  });
+
+  const end = (ev) => {
+    pointers.delete(ev.pointerId);
+    if (pointers.size < 2) pinch = null;
+    if (pointers.size === 0) {
+      if (drag && !drag.moved && chartGeom && chartGeom.showTip) chartGeom.showTip(ev);  // tap shows the candle
+      drag = null;
+      svg.classList.remove("dragging");
+    }
+  };
+  svg.addEventListener("pointerup", end);
+  svg.addEventListener("pointercancel", end);
+  svg.addEventListener("pointerleave", (ev) => { if (ev.pointerType === "mouse") hideTip(); });
+
+  $("zin").addEventListener("click", () => zoomAt(1 / 1.5, null));
+  $("zout").addEventListener("click", () => zoomAt(1.5, null));
+  $("zfit").addEventListener("click", () => setZoom(candles.length, 0));
+  if (matchMedia("(pointer: fine)").matches)
+    $("zhint").textContent = "Scroll to zoom · drag to move · double-click to fit";
+})();
 
 document.querySelectorAll("#pc-ranges button").forEach((b) => {
   b.setAttribute("aria-pressed", String(b.dataset.prange === pRange));
@@ -574,7 +704,7 @@ document.querySelectorAll("#pc-ranges button").forEach((b) => {
     pRange = b.dataset.prange;
     try { localStorage.setItem("prange", pRange); } catch (e) {}
     document.querySelectorAll("#pc-ranges button").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
-    candles = []; renderPriceChart(); loadCandles();
+    candles = []; zoomCount = 0; zoomBack = 0; renderPriceChart(); loadCandles();
   });
 });
 setLive(false);
