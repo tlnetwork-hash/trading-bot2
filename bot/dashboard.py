@@ -9,6 +9,7 @@ import logging
 import os
 import threading
 import time
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -137,7 +138,7 @@ def _trend(cfg, state):
         price = (state.get("prices") or {}).get(sym) or 0
         sig = (state.get("signals") or {}).get(sym) or {}
         rows.append({
-            "coin": sym.split("/")[0], "price": price, "qty": sl["qty"], "cash": sl["cash"],
+            "symbol": sym, "coin": sym.split("/")[0], "price": price, "qty": sl["qty"], "cash": sl["cash"],
             "value": sl["cash"] + sl["qty"] * price, "close": sig.get("close"), "sma": sig.get("sma"),
             "up": sig.get("up"),
         })
@@ -176,7 +177,11 @@ NO_ACCESS = (b"Login not set up. This dashboard was reached through Cloudflare w
 
 
 def make_handler(cfg, candles=None):
-    candles = candles or CandleSource(cfg.symbol, exchange=cfg.chart_source)
+    # One candle source per coin the page can chart (the trend bot charts each of its coins).
+    sources = {cfg.symbol: candles or CandleSource(cfg.symbol, exchange=cfg.chart_source)}
+    if cfg.strategy == "trend":
+        for sym in cfg.trend.symbols:
+            sources.setdefault(sym, CandleSource(sym, exchange=cfg.chart_source))
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -192,7 +197,10 @@ def make_handler(cfg, candles=None):
                 self._send(200, "application/json", body)
             elif path == "/api/candles":
                 params = dict(p.split("=", 1) for p in query.split("&") if "=" in p)
-                body = json.dumps(candles.get(params.get("range", "24h"))).encode()
+                sym = urllib.parse.unquote(params.get("symbol", "")) or cfg.symbol
+                source = sources.get(sym)
+                result = source.get(params.get("range", "24h")) if source else {"error": f"unknown symbol {sym!r}"}
+                body = json.dumps(result).encode()
                 self._send(200, "application/json", body)
             else:
                 self._send(404, "text/plain", b"not found")
