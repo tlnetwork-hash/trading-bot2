@@ -99,6 +99,8 @@ class Config:
     api_secret: str = ""
     ntfy_topic: str = ""
     ntfy_server: str = "https://ntfy.sh"
+    ntfy_command_topic: str = ""   # private topic the bots read phone commands from
+    ntfy_command_pin: str = ""     # every phone command must start with this
     data_dir: Path = Path("data")
     dashboard_links: list = field(default_factory=list)  # [{"label": ..., "port": ...}]
     chart_exchange: str = ""  # where the dashboard's price chart comes from; "" = exchange
@@ -120,6 +122,12 @@ class Config:
     @property
     def ntfy_url(self):
         return f"{self.ntfy_server.rstrip('/')}/{self.ntfy_topic}" if self.ntfy_topic else ""
+
+    @property
+    def ntfy_command_url(self):
+        if not (self.ntfy_command_topic and self.ntfy_command_pin):
+            return ""
+        return f"{self.ntfy_server.rstrip('/')}/{self.ntfy_command_topic}"
 
     @property
     def state_path(self):
@@ -171,6 +179,14 @@ class Config:
         if self.mode == "live" and not (self.api_key and self.api_secret):
             raise ConfigError(f"live mode needs {self.env_prefix}_API_KEY and "
                               f"{self.env_prefix}_API_SECRET in .env")
+        if self.ntfy_command_topic or self.ntfy_command_pin:
+            if not (self.ntfy_command_topic and self.ntfy_command_pin):
+                raise ConfigError("phone commands need both NTFY_COMMAND_TOPIC and NTFY_COMMAND_PIN in .env")
+            if not (self.ntfy_command_pin.isdigit() and 4 <= len(self.ntfy_command_pin) <= 8):
+                raise ConfigError("NTFY_COMMAND_PIN must be 4 to 8 digits")
+            if self.ntfy_command_topic == self.ntfy_topic:
+                raise ConfigError("NTFY_COMMAND_TOPIC must be different from NTFY_TOPIC "
+                                  "(anyone who can read your alerts could control the bots)")
         for link in self.dashboard_links:
             if not isinstance(link, dict) or not link.get("label") or not isinstance(link.get("port"), int):
                 raise ConfigError("each dashboard link needs a label and a port number")
@@ -215,6 +231,8 @@ def load_config(path="config.yaml", env=None):
         api_secret=env.get(f"{prefix}_API_SECRET", "").strip(),
         ntfy_topic=env.get("NTFY_TOPIC", "").strip(),
         ntfy_server=env.get("NTFY_SERVER", "").strip() or "https://ntfy.sh",
+        ntfy_command_topic=env.get("NTFY_COMMAND_TOPIC", "").strip(),
+        ntfy_command_pin=env.get("NTFY_COMMAND_PIN", "").strip(),
         data_dir=Path(env.get("BOT_DATA_DIR", "data")),
         dashboard_links=list((raw.get("dashboard") or {}).get("links") or []),
         chart_exchange=str((raw.get("dashboard") or {}).get("chart_exchange") or "").lower(),
