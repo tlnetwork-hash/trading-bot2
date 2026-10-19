@@ -567,3 +567,15 @@ How a few details work:
 - **Order safety:** the bot saves its memory right before and right after sending each order,
   and after every fill, so a restart picks up where it left off. If sending an order fails
   (for example a network blip), it retries on the next check.
+
+## Trend strategy (added 2026-10-19)
+
+Set `strategy: trend` in a bot's config to switch it from the SOL grid to a
+trend-following basket. Each coin in `trend.symbols` gets an equal slice of
+`capital_usd`. Once a day (after the UTC daily candle closes) the bot holds a
+coin if its last daily close is above its `trend.sma_days` average, otherwise
+that slice sits in cash. Paper mode only for now. Trend runs use their own
+files (`state-trend-paper.json`, etc.), so switching back to `strategy: grid`
+picks up the old grid state. `pause` sells everything to cash, `resume`
+re-checks trends, `reset` starts over. Phone commands aren't wired up for
+trend yet. Backtests that led to this live in /root/backtest on the server.
