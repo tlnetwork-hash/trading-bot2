@@ -41,7 +41,7 @@ risk:
   # What to do when the price leaves the grid range:
   #   pause    = cancel orders, stop, and email you (you then run "resume")
   #   recenter = automatically rebuild the grid around the new price
-  breakout_action: pause
+  breakout_action: recenter
   # Sell SOL right away if the price falls out of the bottom of the grid,
   # instead of holding it while it keeps dropping.
   sell_on_breakout_down: true
@@ -74,8 +74,11 @@ paper:
   slippage_pct: 0.05     # extra price penalty on simulated market orders
 
 # Buttons at the top of the dashboard for switching between the bots'
-# dashboards. Each one is the same server address on a different port.
+# dashboards. Over Tailscale each one is the same server address on a
+# different port. If you view them through Cloudflare (README "Viewing from
+# any computer"), add each one's https address as url, e.g.
+#   - {label: Kraken, port: 8080, url: "https://kraken.example.com/"}
 dashboard:
   links:
-    - {label: Kraken, port: 8080}
-    - {label: Binance.US, port: 8081}
+    - {label: Kraken, port: 8080, url: "https://k.tlnetwork.net/"}
+    - {label: Binance.US, port: 8081, url: "https://b.tlnetwork.net/"}

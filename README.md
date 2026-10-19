@@ -277,7 +277,9 @@ between your own devices. Nobody else on the internet can see the page.
 4. With Tailscale switched on, open **http://100.73.129.3:8080** (using your address) on your
    phone or computer. Bookmark it, or add it to your phone's home screen.
 
-> Never set `DASHBOARD_BIND=0.0.0.0`. That puts the page on the public internet.
+> Never set `DASHBOARD_BIND=0.0.0.0`. That puts the page on the public internet with no login.
+> To open it from computers without Tailscale, see
+> [Viewing from any computer](#viewing-from-any-computer-cloudflare).
 
 The chart gets a new point every 5 minutes, so give it a little while after starting.
 Equity history and the trade log are saved in `data/history-<mode>.jsonl` and
@@ -301,6 +303,66 @@ both settings files to change them. Phone alerts from each bot name their exchan
 `SOL grid paper (Binance.US): BUY filled`. To go live on Binance.US later, put a key in
 `BINANCEUS_API_KEY` / `BINANCEUS_API_SECRET` (trading only, never withdrawals) and set
 `mode: live` in `config-binanceus.yaml`.
+
+### Viewing from any computer (Cloudflare)
+
+Tailscale needs its app on every device. To open the dashboards in **any browser** (a work
+computer, a friend's laptop) without installing anything, put them on your own web address
+behind a **Cloudflare Access** login. You visit e.g. `https://kraken.yourdomain.com`,
+type your email, and Cloudflare emails you a one-time code. Only email addresses you list
+get in. The server connects *out* to Cloudflare, so no ports are opened, and Tailscale keeps
+working as before.
+
+You need a domain whose DNS is managed by Cloudflare (a free Cloudflare account is enough).
+Below, `yourdomain.com` stands for it. Cloudflare renames menu items now and then, so the
+names below may differ slightly.
+
+1. **Turn on Zero Trust.** At https://one.dash.cloudflare.com, pick your account and choose
+   the **Free** plan if asked. It may ask for a card; the free plan isn't charged.
+2. **Set up the login first**, so the pages are never open without it. Go to
+   **Access → Applications → Add an application → Self-hosted**.
+   - Name: `Grid bots`.
+   - Add two public hostnames: `kraken.yourdomain.com` and `binance.yourdomain.com`.
+   - Add a policy: Action **Allow**, Include **Emails**, and your email address (add
+     anyone else you trust).
+   - Save. Logging in with an emailed one-time code is on by default.
+3. **Create the tunnel.** Go to **Networks → Tunnels → Create a tunnel → Cloudflared**,
+   name it `grid-bot`, and pick **Docker** on the install screen. Don't run the command it
+   shows. Copy only the long token after `--token`.
+4. **Point the addresses at the dashboards.** Still in the tunnel, add two public hostnames
+   (also called routes):
+
+   | Subdomain | Domain | Service type | URL |
+   |---|---|---|---|
+   | `kraken` | `yourdomain.com` | HTTP | `dashboard:8080` |
+   | `binance` | `yourdomain.com` | HTTP | `dashboard-binanceus:8080` |
+
+5. **Start it on the server.**
+   ```bash
+   cd ~/trading-bot2
+   git pull
+   nano .env           # set  COMPOSE_PROFILES=cloudflare
+                       # and  CLOUDFLARE_TUNNEL_TOKEN=<the token from step 3>
+   docker compose up -d
+   ```
+   Check with `docker compose logs --tail 20 cloudflared`. You should see `Registered tunnel
+   connection`.
+6. **Fix the switch buttons.** In **both** `config.yaml` and `config-binanceus.yaml`, add the
+   addresses to the dashboard links, then `docker compose up -d` again:
+   ```yaml
+   links:
+     - {label: Kraken, port: 8080, url: "https://kraken.yourdomain.com/"}
+     - {label: Binance.US, port: 8081, url: "https://binance.yourdomain.com/"}
+   ```
+
+Now open `https://kraken.yourdomain.com` from any browser. Logins last 24 hours by default
+(you can change that in the Access application).
+
+If the page says **"Login not set up"**, the address reaches the dashboard through Cloudflare
+but isn't listed in the Access application from step 2. Add it there. The dashboard refuses
+Cloudflare visitors that skipped the login, so a forgotten step doesn't leave it open. Still,
+Access is what keeps people out; this is only a backstop. To turn the whole thing off, set
+`COMPOSE_PROFILES=` back to empty and run `docker compose rm -sf cloudflared`.
 
 ### Phone alerts (ntfy)
 

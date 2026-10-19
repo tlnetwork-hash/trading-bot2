@@ -78,6 +78,23 @@ def test_http_server(make_bot, cfg):
         server.shutdown()
 
 
+def test_cloudflare_without_access_is_refused(make_bot, cfg):
+    run_some_trades(make_bot)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(cfg))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_port}/api/state"
+    try:
+        try:
+            urllib.request.urlopen(urllib.request.Request(url, headers={"Cf-Ray": "abc-IAD"}))
+            assert False, "expected 403"
+        except urllib.error.HTTPError as e:
+            assert e.code == 403 and b"Login not set up" in e.read()
+        ok = urllib.request.Request(url, headers={"Cf-Ray": "abc-IAD", "Cf-Access-Jwt-Assertion": "x"})
+        assert json.loads(urllib.request.urlopen(ok).read())["symbol"] == "SOL/USD"
+    finally:
+        server.shutdown()
+
+
 def test_candle_source_caches_and_survives_errors(monkeypatch):
     from bot import dashboard
     calls = []
