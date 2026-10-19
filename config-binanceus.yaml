@@ -41,7 +41,7 @@ risk:
   # What to do when the price leaves the grid range:
   #   pause    = cancel orders, stop, and email you (you then run "resume")
   #   recenter = automatically rebuild the grid around the new price
-  breakout_action: pause
+  breakout_action: recenter
   # Sell SOL right away if the price falls out of the bottom of the grid,
   # instead of holding it while it keeps dropping.
   sell_on_breakout_down: true
