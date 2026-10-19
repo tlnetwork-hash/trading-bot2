@@ -65,7 +65,7 @@ class GridBot:
         if cfg.ntfy_command_url:
             self.remote = RemoteCommands(cfg.ntfy_command_url, cfg.ntfy_command_pin,
                                          cfg.exchange, state)
-        self.last_rejected_alert = 0.0
+        self.last_rejected_alert = None
 
     # ------------------------------------------------------------------ loop
 
@@ -536,7 +536,9 @@ class GridBot:
     def _phone_command_rejected(self, error):
         # Only the main bot answers, at most every 10 minutes, so a stranger
         # spamming the topic can't flood your phone.
-        if self.cfg.service_name != "bot" or time.monotonic() - self.last_rejected_alert < 600:
+        if self.cfg.service_name != "bot":
+            return
+        if self.last_rejected_alert is not None and time.monotonic() - self.last_rejected_alert < 600:
             return
         self.last_rejected_alert = time.monotonic()
         self.notifier.send("Phone command ignored",
