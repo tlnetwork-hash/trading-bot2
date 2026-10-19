@@ -323,6 +323,25 @@ another when the bot recovers.
    `docker compose up -d --force-recreate` followed by
    `docker compose exec bot python -m bot check`. A test notification should arrive.
 
+### Phone commands (ntfy)
+
+You can also control the bots from the ntfy app. The bots read a second, private topic
+(`NTFY_COMMAND_TOPIC` in `.env`) and only obey messages that start with your PIN
+(`NTFY_COMMAND_PIN`). Subscribe to the command topic in the ntfy app, then send a message:
+
+| Message | What happens |
+|---|---|
+| `<PIN> status` | Each bot replies with its equity, profit, grid and profit lock |
+| `<PIN> pause kraken` | The Kraken bot cancels its orders and stops (also cancels a pending auto-restart) |
+| `<PIN> resume binance` | The Binance.US bot builds a new grid and starts trading |
+| `<PIN> help` | Lists the commands |
+
+Leave out the bot name to send a command to both. Replies arrive as normal alerts within
+about 30 seconds. Messages without the right PIN are ignored, and you get at most one
+"Phone command ignored" alert every 10 minutes. `reset` (sell everything) only works from the
+server. Free ntfy topics have no password, so keep the command topic name and PIN private;
+before going live with real money, use a password-protected topic.
+
 ### Email through Brevo
 
 Some providers, including **DigitalOcean**, block the ports used to send email, so Gmail can't

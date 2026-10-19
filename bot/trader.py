@@ -2,11 +2,13 @@
 
 import logging
 import threading
+import time
 from datetime import datetime, timedelta
 
 import ccxt
 
 from .grid import GridError, average_true_range, plan_grid, range_pct_from_atr
+from .remote import HELP, RemoteCommands
 from .state import append_jsonl, new_state, save_state, utcnow
 
 log = logging.getLogger(__name__)
@@ -59,6 +61,11 @@ class GridBot:
             )
         # State files saved before the profit lock existed.
         state.setdefault("lock", {"base": state["start_equity"], "peak": state["start_equity"]})
+        self.remote = None
+        if cfg.ntfy_command_url:
+            self.remote = RemoteCommands(cfg.ntfy_command_url, cfg.ntfy_command_pin,
+                                         cfg.exchange, state)
+        self.last_rejected_alert = 0.0
 
     # ------------------------------------------------------------------ loop
 
@@ -97,6 +104,7 @@ class GridBot:
 
         self._check_orders()
         self._handle_command(price)
+        self._handle_phone_commands(price)
         st = self.state  # "reset" replaces the state object
         if st["status"] == "paused" and st.get("rebuy"):
             self._check_rebuy(price)
@@ -496,8 +504,47 @@ class GridBot:
             return
         command = path.read_text().strip().lower()
         path.unlink()
-        st = self.state
         log.info("received command: %s", command)
+        self._run_command(command, price)
+
+    def _handle_phone_commands(self, price):
+        if self.remote is None:
+            return
+        for parsed in self.remote.poll():
+            if parsed.error:
+                self._phone_command_rejected(parsed.error)
+            elif parsed.for_me:
+                log.info("phone command: %s", parsed.command)
+                self._phone_command(parsed.command, price)
+        self.state["remote"] = self.remote.state
+
+    def _phone_command(self, command, price):
+        if command == "help":
+            if self.cfg.service_name == "bot":   # one reply, not one per bot
+                self.notifier.send("Phone commands", HELP)
+            return
+        if command == "status":
+            self.notifier.send(f"Status: ${self.equity(price):,.2f}", self.summary(price))
+            return
+        before, waiting = self.state["status"], bool(self.state.get("rebuy"))
+        self._run_command(command, price)
+        if command == "resume" and before == "running":
+            self.notifier.send("Already running", self.summary(price))
+        elif command == "pause" and before != "running" and not waiting:
+            self.notifier.send("Already paused", self.summary(price))
+
+    def _phone_command_rejected(self, error):
+        # Only the main bot answers, at most every 10 minutes, so a stranger
+        # spamming the topic can't flood your phone.
+        if self.cfg.service_name != "bot" or time.monotonic() - self.last_rejected_alert < 600:
+            return
+        self.last_rejected_alert = time.monotonic()
+        self.notifier.send("Phone command ignored",
+                           f"A message on the command topic was ignored: {error}.\n\n{HELP}",
+                           priority="low")
+
+    def _run_command(self, command, price):
+        st = self.state
         if command == "pause":
             if st["status"] == "running":
                 self._pause("paused by you")
