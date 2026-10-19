@@ -1,20 +1,19 @@
-# Grid bot settings. After editing, restart the bot:  docker compose restart
-#
-# Changes to the "grid" section only take effect the next time the grid is
-# built (first start, "resume", or "reset").
+# SOL grid bot on Binance.US (was the Kraken bot until 2026-10-19; the Kraken
+# run's files are in data/kraken-archive-2026-10-19). The other Binance.US bot,
+# config-binanceus.yaml, runs the BTC/ETH/SOL trend basket.
+# After editing, restart it:  docker compose restart bot
 
-# paper = simulated trades on real Kraken prices (no money at risk)
-# live  = real orders on your Kraken account
+# paper = simulated trades on real Binance.US prices (no money at risk)
+# live  = real orders on your Binance.US account
 mode: paper
 
-# Which exchange: kraken or binanceus. The Binance.US bot has its own file,
-# config-binanceus.yaml.
-exchange: kraken
+# Which exchange: kraken or binanceus.
+exchange: binanceus
 
 symbol: SOL/USD
 
 # How many US dollars the bot is allowed to use. It never touches more than
-# this, even if your Kraken account holds more.
+# this, even if your Binance.US account holds more.
 capital_usd: 400
 
 grid:
@@ -27,12 +26,11 @@ grid:
   max_levels: 20         # maximum number of grid lines
   fee_reserve_pct: 2     # % of capital kept aside for fees and rounding
 
-# Your Kraken fee tier. Used to simulate paper trades and to check that the
-# grid spacing is profitable. 0.40 / 0.80 is Kraken Pro's starting tier
-# (Tier 1, since July 2026). Check https://www.kraken.com/features/fee-schedule
+# Binance.US fees: 0% maker / 0.02% taker on all pairs for every account
+# (since April 2026). Check https://www.binance.us/fees
 fees:
-  maker_pct: 0.40
-  taker_pct: 0.80
+  maker_pct: 0.0
+  taker_pct: 0.02
 
 risk:
   # Kill switch: if the bot's money falls this % below where it started,
@@ -79,6 +77,10 @@ paper:
 # any computer"), add each one's https address as url, e.g.
 #   - {label: Kraken, port: 8080, url: "https://kraken.example.com/"}
 dashboard:
+  # Binance.US has so few SOL/USD trades that its candles are mostly flat
+  # lines, so the price chart and live price come from Kraken instead. The
+  # price is the same to within cents; the bot still trades on Binance.US.
+  chart_exchange: kraken
   links:
-    - {label: Kraken, port: 8080, url: "https://k.tlnetwork.net/"}
-    - {label: Binance.US, port: 8081, url: "https://b.tlnetwork.net/"}
+    - {label: SOL grid, port: 8080, url: "https://k.tlnetwork.net/"}
+    - {label: Trend basket, port: 8081, url: "https://b.tlnetwork.net/"}
