@@ -84,5 +84,5 @@ dashboard:
   # price is the same to within cents; the bot still trades on Binance.US.
   chart_exchange: kraken
   links:
-    - {label: Kraken, port: 8080}
-    - {label: Binance.US, port: 8081}
+    - {label: Kraken, port: 8080, url: "https://k.tlnetwork.net/"}
+    - {label: Binance.US, port: 8081, url: "https://b.tlnetwork.net/"}

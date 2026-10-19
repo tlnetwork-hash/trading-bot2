@@ -80,5 +80,5 @@ paper:
 #   - {label: Kraken, port: 8080, url: "https://kraken.example.com/"}
 dashboard:
   links:
-    - {label: Kraken, port: 8080}
-    - {label: Binance.US, port: 8081}
+    - {label: Kraken, port: 8080, url: "https://k.tlnetwork.net/"}
+    - {label: Binance.US, port: 8081, url: "https://b.tlnetwork.net/"}
