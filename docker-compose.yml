@@ -64,3 +64,18 @@ services:
     ports:
       - "${DASHBOARD_BIND:-127.0.0.1}:8081:8080"
     logging: *logging
+
+  # Optional: lets you open the dashboards from any computer's browser behind a
+  # Cloudflare Access login (README "Viewing from any computer"). Off unless
+  # .env has COMPOSE_PROFILES=cloudflare and CLOUDFLARE_TUNNEL_TOKEN. It
+  # connects out to Cloudflare, so no ports are opened on the server.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: grid-bot-cloudflared
+    profiles: [cloudflare]
+    command: ["tunnel", "--no-autoupdate", "run"]
+    restart: unless-stopped
+    depends_on: [dashboard, dashboard-binanceus]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    logging: *logging

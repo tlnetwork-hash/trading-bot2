@@ -102,7 +102,7 @@ class Config:
     ntfy_command_topic: str = ""   # private topic the bots read phone commands from
     ntfy_command_pin: str = ""     # every phone command must start with this
     data_dir: Path = Path("data")
-    dashboard_links: list = field(default_factory=list)  # [{"label": ..., "port": ...}]
+    dashboard_links: list = field(default_factory=list)  # [{"label": ..., "port": ..., "url": ...}]
     chart_exchange: str = ""  # where the dashboard's price chart comes from; "" = exchange
     service_name: str = "bot"  # docker compose service, used in help text for commands
 
@@ -190,6 +190,9 @@ class Config:
         for link in self.dashboard_links:
             if not isinstance(link, dict) or not link.get("label") or not isinstance(link.get("port"), int):
                 raise ConfigError("each dashboard link needs a label and a port number")
+            url = link.get("url")
+            if url is not None and not (isinstance(url, str) and url.startswith("https://")):
+                raise ConfigError("a dashboard link's url must start with https://")
 
 
 def _section(cls, raw):

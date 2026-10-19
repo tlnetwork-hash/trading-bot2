@@ -242,14 +242,18 @@ function render() {
   renderChart();
 }
 
-// Links to the other bots' dashboards: same server name, different port.
+// Links to the other bots' dashboards. Over Tailscale they share the server
+// name on different ports; through Cloudflare each has its own https address.
 function renderSwitch(d) {
   const nav = $("switch");
   if (nav.childElementCount || !d.links || !d.links.length) return;
   const here = Number(location.port) || (location.protocol === "https:" ? 443 : 80);
+  const viaUrl = d.links.some((l) => l.url && new URL(l.url).host === location.host);
   nav.innerHTML = d.links.map((l) => {
-    const href = location.protocol + "//" + location.hostname + ":" + l.port + "/";
-    return `<a href="${esc(href)}"${l.port === here ? ' aria-current="page"' : ""}>${esc(l.label)}</a>`;
+    const href = viaUrl && l.url ? l.url
+      : location.protocol + "//" + location.hostname + ":" + l.port + "/";
+    const current = viaUrl ? l.url && new URL(l.url).host === location.host : l.port === here;
+    return `<a href="${esc(href)}"${current ? ' aria-current="page"' : ""}>${esc(l.label)}</a>`;
   }).join("");
 }
 

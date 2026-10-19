@@ -153,13 +153,22 @@ def _rebuy(cfg, state):
     }
 
 
+NO_ACCESS = (b"Login not set up. This dashboard was reached through Cloudflare without a "
+             b"Cloudflare Access login in front of it. Add this address to your Access "
+             b"application (see README \"Viewing from any computer\").\n")
+
+
 def make_handler(cfg, candles=None):
     candles = candles or CandleSource(cfg.symbol, exchange=cfg.chart_source)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             path, _, query = self.path.partition("?")
-            if path == "/":
+            if self.headers.get("Cf-Ray") and not self.headers.get("Cf-Access-Jwt-Assertion"):
+                # Came through a Cloudflare Tunnel without passing Cloudflare
+                # Access, so the login step was never set up. Fail closed.
+                self._send(403, "text/plain; charset=utf-8", NO_ACCESS)
+            elif path == "/":
                 self._send(200, "text/html; charset=utf-8", PAGE)
             elif path == "/api/state":
                 body = json.dumps(snapshot(cfg)).encode()

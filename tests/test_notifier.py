@@ -139,6 +139,11 @@ def test_dashboard_links(tmp_path):
     path.write_text("dashboard:\n  links:\n    - {label: Kraken}\n")
     with pytest.raises(ConfigError, match="dashboard link"):
         load_config(path, env={})
+    path.write_text('dashboard:\n  links:\n    - {label: K, port: 8080, url: "https://k.example.com/"}\n')
+    assert load_config(path, env={}).dashboard_links[0]["url"] == "https://k.example.com/"
+    path.write_text('dashboard:\n  links:\n    - {label: K, port: 8080, url: "http://k.example.com/"}\n')
+    with pytest.raises(ConfigError, match="https://"):
+        load_config(path, env={})
 
 
 def test_shipped_configs_load():

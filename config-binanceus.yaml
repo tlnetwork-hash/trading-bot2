@@ -74,7 +74,10 @@ paper:
   slippage_pct: 0.05     # extra price penalty on simulated market orders
 
 # Buttons at the top of the dashboard for switching between the bots'
-# dashboards. Each one is the same server address on a different port.
+# dashboards. Over Tailscale each one is the same server address on a
+# different port. If you view them through Cloudflare (README "Viewing from
+# any computer"), add each one's https address as url, e.g.
+#   - {label: Kraken, port: 8080, url: "https://kraken.example.com/"}
 dashboard:
   # Binance.US has so few SOL/USD trades that its candles are mostly flat
   # lines, so the price chart and live price come from Kraken instead. The
