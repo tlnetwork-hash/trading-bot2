@@ -81,4 +81,4 @@ def test_load_config_rejects_typos(tmp_path):
 
 def test_shipped_config_is_valid():
     cfg = load_config("config.yaml", env={})
-    assert cfg.mode == "paper" and cfg.symbol == "SOL/USD"
+    assert cfg.mode == "paper" and cfg.symbol == "BTC/USD"

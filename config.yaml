@@ -1,6 +1,6 @@
-# SOL grid bot on Binance.US (was the Kraken bot until 2026-10-19; the Kraken
-# run's files are in data/kraken-archive-2026-10-19). The other Binance.US bot,
-# config-binanceus.yaml, runs the BTC/ETH/SOL trend basket.
+# BTC grid bot on Binance.US. Until 2026-10-19 this slot was the Kraken SOL
+# grid, then briefly a Binance.US SOL grid; both runs are archived in data/.
+# The other Binance.US bot, config-binanceus.yaml, runs the BTC/ETH/SOL trend basket.
 # After editing, restart it:  docker compose restart bot
 
 # paper = simulated trades on real Binance.US prices (no money at risk)
@@ -10,7 +10,7 @@ mode: paper
 # Which exchange: kraken or binanceus.
 exchange: binanceus
 
-symbol: SOL/USD
+symbol: BTC/USD
 
 # How many US dollars the bot is allowed to use. It never touches more than
 # this, even if your Binance.US account holds more.
@@ -40,19 +40,19 @@ risk:
   #   pause    = cancel orders, stop, and email you (you then run "resume")
   #   recenter = automatically rebuild the grid around the new price
   breakout_action: recenter
-  # Sell SOL right away if the price falls out of the bottom of the grid,
+  # Sell BTC right away if the price falls out of the bottom of the grid,
   # instead of holding it while it keeps dropping.
   sell_on_breakout_down: true
   # Profit lock (a trailing stop on the bot's money). Once the bot is up
   # profit_lock_start_pct, it remembers its best gain. If it gives back so
   # much that only profit_lock_keep_pct of that gain is left, it sells all its
-  # SOL and pauses. Example: up 4% at best -> sells if it drops back to +2%.
+  # BTC and pauses. Example: up 4% at best -> sells if it drops back to +2%.
   # The stop only moves up and always stays above where it started.
   # Set profit_lock_start_pct to 0 to turn this off.
   profit_lock_start_pct: 2.0
   profit_lock_keep_pct: 50
   # After a stop-loss or profit-lock sale, start trading again by itself, but
-  # only at a good spot to buy: SOL has bounced restart_bounce_pct off its
+  # only at a good spot to buy: BTC has bounced restart_bounce_pct off its
   # lowest price since the sale (it stopped falling), the price is no higher
   # than where the bot sold, and at least restart_wait_minutes have passed.
   # The kill switch never restarts by itself.
@@ -82,5 +82,5 @@ dashboard:
   # price is the same to within cents; the bot still trades on Binance.US.
   chart_exchange: kraken
   links:
-    - {label: SOL grid, port: 8080, url: "https://k.tlnetwork.net/"}
+    - {label: BTC grid, port: 8080, url: "https://k.tlnetwork.net/"}
     - {label: Trend basket, port: 8081, url: "https://b.tlnetwork.net/"}
