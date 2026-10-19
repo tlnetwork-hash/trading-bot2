@@ -164,7 +164,7 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
 
   <div class="cols">
     <section class="card">
-      <h2>Grid <span class="muted" id="grid-sub" style="font-weight:400"></span></h2>
+      <h2><span id="grid-title">Grid</span> <span class="muted" id="grid-sub" style="font-weight:400"></span></h2>
       <div class="scroll"><table class="ladder"><thead><tr><th>Level</th><th class="num">Price</th><th>Order</th><th class="num">Amount</th></tr></thead>
         <tbody id="ladder"></tbody></table></div>
     </section>
@@ -202,7 +202,7 @@ function render() {
   const d = data;
   const base = d.symbol.split("/")[0];
   $("title").textContent = d.exchange_name + " " + d.symbol;
-  document.title = d.exchange_name + " grid - " + usd(d.equity);
+  document.title = d.exchange_name + (d.trend ? " trend - " : " grid - ") + usd(d.equity);
   renderSwitch(d);
   $("live").title = "Live prices stream straight from " + d.chart_exchange_name + " to your browser";
   $("mode").textContent = d.mode.toUpperCase();
@@ -227,7 +227,7 @@ function render() {
   $("equity-sub").textContent = pct(change) + " since start (" + usd(d.start_equity) + ")";
   $("price-label").textContent = d.symbol + " price";
   $("price").textContent = usd(ownLive() ? livePrice ?? d.price : d.price);
-  $("price-sub").textContent = d.grid ? "grid " + usd(d.grid.lower) + " - " + usd(d.grid.upper) : "no grid";
+  $("price-sub").textContent = d.trend ? "trend basket (one of " + d.trend.rows.length + " coins)" : d.grid ? "grid " + usd(d.grid.lower) + " - " + usd(d.grid.upper) : "no grid";
   $("profit").textContent = usd(d.stats.grid_profit);
   $("profit-sub").textContent = d.stats.round_trips + " round trips, " + d.stats.buys + " buys / " + d.stats.sells + " sells";
   $("fees").textContent = usd(d.stats.fees);
@@ -285,6 +285,7 @@ function sideCell(side) {
 }
 
 function renderLadder(base) {
+  if (data.trend) { renderTrendTable(); return; }
   const g = data.grid;
   if (!g) { $("ladder").innerHTML = `<tr><td colspan="4" class="empty">No grid right now</td></tr>`; $("grid-sub").textContent = ""; return; }
   $("grid-sub").textContent = `${g.levels.length} levels, ${g.spacing_pct.toFixed(2)}% apart`;
@@ -304,8 +305,28 @@ function renderLadder(base) {
   $("ladder").innerHTML = rows;
 }
 
+function renderTrendTable() {
+  const tr = data.trend;
+  $("grid-title").textContent = "Trend signals";
+  $("grid-sub").textContent = "checked daily vs " + tr.sma_days + "-day average";
+  document.querySelector(".ladder thead").innerHTML = `<tr><th>Coin</th><th class="num">Last close</th><th class="num">${tr.sma_days}-day avg</th><th>Position</th></tr>`;
+  $("ladder").innerHTML = tr.rows.map((r) => {
+    const sig = r.up == null ? `<span class="muted">not checked</span>` : r.up ? `<span style="color:var(--buy)">above &rarr; hold</span>` : `<span style="color:var(--sell)">below &rarr; cash</span>`;
+    return `<tr><td><b>${esc(r.coin)}</b></td><td class="num">${usd(r.close)}</td><td class="num">${usd(r.sma)}</td><td>${sig}</td></tr>`;
+  }).join("");
+}
+
 function renderStats(base) {
   const d = data, b = d.balances;
+  if (d.trend) {
+    const items = d.trend.rows.map((r) => [r.coin, r.qty > 0
+      ? `holding ${r.qty.toFixed(6)} (${usd(r.value)})` : `cash ${usd(r.cash)}`]);
+    items.push(["Started", usd(d.start_equity)],
+      ["Change", usd(d.equity - d.start_equity) + " (" + pct((d.equity / d.start_equity - 1) * 100) + ")"],
+      ["Running since", timeLabel(d.created_at, true)]);
+    $("stats").innerHTML = items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+    return;
+  }
   const items = [
     ["USD", usd(b.quote)],
     [base, b.base.toFixed(6) + " (" + usd(b.base * d.price) + ")"],
@@ -320,11 +341,16 @@ function renderStats(base) {
   $("stats").innerHTML = items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
 }
 
+function tradeAmount(r, base) {
+  const coin = (r.kind || "").startsWith("trend ") ? r.kind.slice(6) : base;
+  return r.amount.toFixed(coin === "BTC" ? 6 : 4) + " " + coin;
+}
+
 function renderTrades(base) {
   const t = data.trades.slice().reverse();
   $("trades").innerHTML = t.length ? t.map((r) => `<tr>
       <td>${timeLabel(r.t, true)}</td><td>${sideCell(r.side)}</td>
-      <td class="num">${r.amount.toFixed(4)} ${base}</td><td class="num">${usd(r.price)}</td>
+      <td class="num">${tradeAmount(r, base)}</td><td class="num">${usd(r.price)}</td>
       <td class="num hide-sm">${usd(r.fee, 4)}</td><td class="num">${r.profit == null ? "" : usd(r.profit, 4)}</td>
       <td class="muted hide-sm">${esc(r.kind)}</td></tr>`).join("")
     : `<tr><td colspan="7" class="empty">No trades yet</td></tr>`;

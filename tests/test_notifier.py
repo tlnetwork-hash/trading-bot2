@@ -149,12 +149,13 @@ def test_dashboard_links(tmp_path):
 def test_shipped_configs_load():
     from pathlib import Path
     root = Path(__file__).parent.parent
-    kraken = load_config(root / "config.yaml", env={})
-    binance = load_config(root / "config-binanceus.yaml", env={})
-    assert (kraken.exchange, binance.exchange) == ("kraken", "binanceus")
-    assert binance.fees.maker_pct == 0 and kraken.fees.maker_pct == 0.40
-    assert kraken.dashboard_links == binance.dashboard_links
-    assert (kraken.chart_source, binance.chart_source) == ("kraken", "kraken")
+    grid = load_config(root / "config.yaml", env={})
+    trend = load_config(root / "config-binanceus.yaml", env={})
+    assert (grid.exchange, trend.exchange) == ("binanceus", "binanceus")
+    assert (grid.strategy, trend.strategy) == ("grid", "trend")
+    assert grid.fees.maker_pct == 0 and trend.fees.maker_pct == 0
+    assert grid.dashboard_links == trend.dashboard_links
+    assert (grid.chart_source, trend.chart_source) == ("kraken", "kraken")
 
 
 def test_chart_exchange(tmp_path):

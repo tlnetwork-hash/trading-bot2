@@ -124,7 +124,24 @@ def snapshot(cfg):
         "history": history,
         "trades": read_jsonl_tail(cfg.trades_path, TRADE_ROWS),
         "updated_seconds_ago": age,
+        "trend": _trend(cfg, state),
     }
+
+
+def _trend(cfg, state):
+    """Per-coin positions and signals for the trend strategy (None for grid)."""
+    if state.get("strategy") != "trend":
+        return None
+    rows = []
+    for sym, sl in state.get("sleeves", {}).items():
+        price = (state.get("prices") or {}).get(sym) or 0
+        sig = (state.get("signals") or {}).get(sym) or {}
+        rows.append({
+            "coin": sym.split("/")[0], "price": price, "qty": sl["qty"], "cash": sl["cash"],
+            "value": sl["cash"] + sl["qty"] * price, "close": sig.get("close"), "sma": sig.get("sma"),
+            "up": sig.get("up"),
+        })
+    return {"sma_days": cfg.trend.sma_days, "rows": rows}
 
 
 def _profit_lock(cfg, state):
