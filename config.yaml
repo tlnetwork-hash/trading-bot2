@@ -70,6 +70,10 @@ alerts:
 
 paper:
   slippage_pct: 0.05     # extra price penalty on simulated market orders
+  # A simulated limit order only counts as filled once the price trades this
+  # % past it (a real order waits in line, so a touch isn't enough). Added
+  # 2026-10-20; fills before then used touch-only and look a bit rosier.
+  fill_through_pct: 0.05
 
 # Buttons at the top of the dashboard for switching between the bots'
 # dashboards. Over Tailscale each one is the same server address on a
@@ -77,9 +81,8 @@ paper:
 # any computer"), add each one's https address as url, e.g.
 #   - {label: Kraken, port: 8080, url: "https://kraken.example.com/"}
 dashboard:
-  # Binance.US has so few SOL/USD trades that its candles are mostly flat
-  # lines, so the price chart and live price come from Kraken instead. The
-  # price is the same to within cents; the bot still trades on Binance.US.
+  # The price chart and live price on the dashboard come from Kraken (smoother
+  # candles than Binance.US). The bot still trades on Binance.US prices.
   chart_exchange: kraken
   links:
     - {label: BTC grid, port: 8080, url: "https://k.tlnetwork.net/"}

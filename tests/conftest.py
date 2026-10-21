@@ -54,7 +54,9 @@ class FakeNotifier:
 
 @pytest.fixture
 def cfg(tmp_path):
-    return Config(data_dir=tmp_path)
+    # Most tests nudge the price a cent past an order to fill it; the
+    # trade-through rule has its own tests in test_paper_fills.py.
+    return Config(data_dir=tmp_path, paper_fill_through_pct=0.0)
 
 
 @pytest.fixture
@@ -62,7 +64,8 @@ def make_bot(cfg):
     def _make(price=150.0, state=None):
         state = state or new_state(cfg)
         kraken = FakeKraken(price)
-        ex = PaperExchange(cfg.symbol, state["paper"], cfg.fees, cfg.paper_slippage_pct, client=kraken)
+        ex = PaperExchange(cfg.symbol, state["paper"], cfg.fees, cfg.paper_slippage_pct, client=kraken,
+                           fill_through_pct=cfg.paper_fill_through_pct)
         notifier = FakeNotifier()
         return GridBot(cfg, ex, notifier, state), kraken, notifier
     return _make

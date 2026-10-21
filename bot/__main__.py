@@ -45,7 +45,7 @@ def make_exchange(cfg, state):
     if cfg.mode == "live":
         return LiveExchange(cfg.symbol, cfg.api_key, cfg.api_secret, exchange=cfg.exchange)
     return PaperExchange(cfg.symbol, state["paper"], cfg.fees, cfg.paper_slippage_pct,
-                         exchange=cfg.exchange)
+                         exchange=cfg.exchange, fill_through_pct=cfg.paper_fill_through_pct)
 
 
 def make_notifier(cfg):

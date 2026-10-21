@@ -98,6 +98,7 @@ class Config:
     capital_usd: float = 400.0
     poll_seconds: int = 30
     paper_slippage_pct: float = 0.05
+    paper_fill_through_pct: float = 0.05
     grid: GridConfig = field(default_factory=GridConfig)
     trend: TrendConfig = field(default_factory=TrendConfig)
     fees: FeeConfig = field(default_factory=FeeConfig)
@@ -243,6 +244,7 @@ def load_config(path="config.yaml", env=None):
         capital_usd=float(raw.get("capital_usd", 400)),
         poll_seconds=int((raw.get("loop") or {}).get("poll_seconds", 30)),
         paper_slippage_pct=float((raw.get("paper") or {}).get("slippage_pct", 0.05)),
+        paper_fill_through_pct=float((raw.get("paper") or {}).get("fill_through_pct", 0.05)),
         grid=_section(GridConfig, raw.get("grid")),
         fees=_section(FeeConfig, raw.get("fees")),
         risk=_section(RiskConfig, raw.get("risk")),
