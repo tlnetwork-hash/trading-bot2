@@ -96,6 +96,46 @@ services:
       - "${DASHBOARD_BIND:-127.0.0.1}:8082:8080"
     logging: *logging
 
+  # Fourth bot: LIVE $50 SOL grid on Binance.US (real money), settings in
+  # config-sollive.yaml, data in data-sollive, dashboard on port 8083.
+  # It has its OWN private phone-command topic so commands meant for the paper
+  # bots can never reach it. Commands:
+  #   docker compose exec bot-sollive python -m bot status
+  #   docker compose exec bot-sollive python -m bot sell all
+  # Built as its own image (grid-bot-live) so the other bots are unaffected.
+  bot-sollive:
+    build: .
+    image: grid-bot-live
+    container_name: grid-bot-sollive
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      BOT_SERVICE: bot-sollive
+      NTFY_COMMAND_TOPIC: ${NTFY_SOLLIVE_COMMAND_TOPIC:-}
+      NTFY_COMMANDS_PRIMARY: "1"
+    volumes:
+      - ./config-sollive.yaml:/app/config.yaml:ro
+      - ./data-sollive:/app/data
+    logging: *logging
+
+  dashboard-sollive:
+    image: grid-bot-live
+    container_name: grid-bot-sollive-dashboard
+    command: ["python", "-m", "bot", "dashboard"]
+    restart: unless-stopped
+    depends_on: [bot-sollive]
+    env_file: .env
+    environment:
+      BOT_SERVICE: bot-sollive
+      NTFY_COMMAND_TOPIC: ${NTFY_SOLLIVE_COMMAND_TOPIC:-}
+      NTFY_COMMANDS_PRIMARY: "1"
+    volumes:
+      - ./config-sollive.yaml:/app/config.yaml:ro
+      - ./data-sollive:/app/data:ro
+    ports:
+      - "${DASHBOARD_BIND:-127.0.0.1}:8083:8080"
+    logging: *logging
+
   # Optional: lets you open the dashboards from any computer's browser behind a
   # Cloudflare Access login (README "Viewing from any computer"). Off unless
   # .env has COMPOSE_PROFILES=cloudflare and CLOUDFLARE_TUNNEL_TOKEN. It

@@ -349,15 +349,25 @@ class GridBot:
         st["grid"] = None
         st["status"] = "halted"
         st["status_reason"] = f"kill switch: equity ${equity:,.2f} fell below ${floor:,.2f}"
+        st.pop("rebuy", None)
         self.save()
         log.error(st["status_reason"])
+        sold_line = "All orders were cancelled. Your coins were NOT sold.\n"
+        if self.cfg.risk.kill_switch_sells:
+            try:
+                sold = self._sell_all(price, "kill")
+            except Exception as e:  # still halted; say so loudly
+                log.exception("kill switch could not sell")
+                sold = f"Tried to sell but it FAILED: {e}\nSell by hand: send 'sell all'.\n"
+            self.save()
+            sold_line = "All orders were cancelled and the coins were sold.\n" + sold
         b = st["balances"]
         self.notifier.send(
             "KILL SWITCH - bot halted",
             f"Equity fell {self.cfg.risk.max_drawdown_pct}% below the starting ${st['start_equity']:,.2f}.\n"
             f"Price: ${price:,.2f}\nEquity: ${equity:,.2f}\n"
             f"Holding: ${b['quote']:,.2f} + {b['base']:.6f} {self.ex.base}\n\n"
-            "All orders were cancelled. Your coins were NOT sold.\n"
+            + sold_line +
             "To restart with a fresh grid (this resets the loss limit to today's value):\n"
             f"  docker compose exec {self.cfg.service_name} python -m bot resume\n"
             "To sell everything and start over:\n"
@@ -520,7 +530,7 @@ class GridBot:
 
     def _phone_command(self, command, price):
         if command == "help":
-            if self.cfg.service_name == "bot":   # one reply, not one per bot
+            if self.cfg.remote_primary:   # one reply, not one per bot
                 self.notifier.send("Phone commands", HELP)
             return
         if command == "status":
@@ -536,7 +546,7 @@ class GridBot:
     def _phone_command_rejected(self, error):
         # Only the main bot answers, at most every 10 minutes, so a stranger
         # spamming the topic can't flood your phone.
-        if self.cfg.service_name != "bot":
+        if not self.cfg.remote_primary:
             return
         if self.last_rejected_alert is not None and time.monotonic() - self.last_rejected_alert < 600:
             return
@@ -566,8 +576,66 @@ class GridBot:
                                                f"Loss limit measured from ${st['start_equity']:,.2f}.")
         elif command == "reset":
             self._reset(price)
+        elif command.split()[0] in ("buy", "sell"):
+            self._manual_trade(command, price)
         else:
-            log.warning("unknown command %r (expected pause, resume or reset)", command)
+            log.warning("unknown command %r (expected pause, resume, reset, buy or sell)", command)
+
+    def _manual_trade(self, command, price):
+        """A market buy or sell you asked for. It pauses the grid first (cancelling
+        its orders) so the bot's books stay right, and leaves it paused; send
+        resume to rebuild a grid around whatever the bot then holds."""
+        st, b, base = self.state, self.state["balances"], self.ex.base
+        words = command.split()
+        side = words[0]
+        arg = words[1].lstrip("$") if len(words) > 1 else ""
+        try:
+            usd = None if arg == "all" else float(arg)
+        except ValueError:
+            usd = -1
+        if usd is not None and usd <= 0:
+            self.notifier.send(f"Manual {side} ignored",
+                               f"'{command}' needs a dollar amount or 'all', e.g. {side} 10 or {side} all.")
+            return
+
+        if st["status"] == "running":
+            self._cancel_all()
+            st["grid"] = None
+            st["status"] = "paused"
+        st.pop("rebuy", None)  # you're in control now; no automatic restart
+
+        if side == "buy":
+            spend = b["quote"] if usd is None else min(usd, b["quote"])
+            # Room for the taker fee plus 0.5% of price movement / slippage.
+            spend /= 1 + (self.cfg.fees.taker_pct + 0.5) / 100
+            amount = self.ex.round_amount(spend / price)
+        else:
+            want = b["base"] if usd is None else usd / price
+            amount = self.ex.round_amount(min(want, b["base"]))
+        if amount <= 0 or amount < self.ex.min_amount or amount * price < max(self.ex.min_cost, 1.0):
+            have = f"${b['quote']:,.2f} cash" if side == "buy" else f"{b['base']:.6f} {base}"
+            self.save()
+            self.notifier.send(f"Manual {side} too small",
+                               f"Not enough to {side}: the bot has {have} and the exchange's minimum "
+                               f"order is {self.ex.min_amount} {base} / ${max(self.ex.min_cost, 1.0):,.2f}.\n\n"
+                               + self.summary(price))
+            return
+
+        info = self.ex.market_order(side, amount, price)
+        amount, fill_price, fee = self._apply_fill(side, info)
+        st["stats"]["buys" if side == "buy" else "sells"] += 1
+        self._log_trade("manual", side, amount, fill_price, fee)
+        if st["status"] == "paused":
+            st["status_reason"] = "paused after your manual trade (send resume to restart the grid)"
+        self.save()
+        log.info("manual %s %s %s @ %.4f (fee $%.4f)", side, amount, base, fill_price, fee)
+        self.notifier.send(
+            f"Manual {side.upper()} done @ ${fill_price:,.2f}",
+            f"{side.upper()} {amount} {base} @ ${fill_price:,.4f} (~${amount * fill_price:,.2f}, fee ${fee:.4f})\n"
+            f"The grid is paused. Send resume to rebuild it around what the bot now holds.\n\n"
+            + self.summary(fill_price),
+            priority="high",
+        )
 
     def _resume(self, price):
         st = self.state

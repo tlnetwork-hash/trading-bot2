@@ -43,6 +43,8 @@ class FeeConfig:
 @dataclass
 class RiskConfig:
     max_drawdown_pct: float = 10.0
+    # When the kill switch fires, also sell the bot's coins so it ends in cash.
+    kill_switch_sells: bool = False
     breakout_action: str = "pause"
     # Profit lock (trailing stop): once equity is up profit_lock_start_pct, sell
     # everything if it gives back more than (100 - profit_lock_keep_pct)% of its
@@ -115,6 +117,13 @@ class Config:
     dashboard_links: list = field(default_factory=list)  # [{"label": ..., "port": ..., "url": ...}]
     chart_exchange: str = ""  # where the dashboard's price chart comes from; "" = exchange
     service_name: str = "bot"  # docker compose service, used in help text for commands
+    # Set (NTFY_COMMANDS_PRIMARY=1) for a bot with its own command topic, so it
+    # answers "help" and rejected-command alerts there like the main bot does.
+    own_command_topic: bool = False
+
+    @property
+    def remote_primary(self):
+        return self.service_name == "bot" or self.own_command_topic
 
     @property
     def chart_source(self):
@@ -265,6 +274,7 @@ def load_config(path="config.yaml", env=None):
         dashboard_links=list((raw.get("dashboard") or {}).get("links") or []),
         chart_exchange=str((raw.get("dashboard") or {}).get("chart_exchange") or "").lower(),
         service_name=env.get("BOT_SERVICE", "").strip() or "bot",
+        own_command_topic=env.get("NTFY_COMMANDS_PRIMARY", "").strip().lower() in ("1", "true", "yes"),
     )
     cfg.validate()
     return cfg

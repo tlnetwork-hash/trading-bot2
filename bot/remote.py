@@ -22,18 +22,34 @@ from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
-COMMANDS = ("status", "pause", "resume", "help")
+COMMANDS = ("status", "pause", "resume", "help", "buy", "sell")
+# Manual trades take a dollar amount or "all": "1234 buy 10", "1234 sell all".
+TRADE_COMMANDS = ("buy", "sell")
 # Words that name each bot (its ccxt exchange id). "all" or nothing means every bot.
+# "live" is accepted by any bot; it is meant for a bot with its own command topic.
 BOT_NAMES = {
     "kraken": "kraken", "k": "kraken",
     "binance": "binanceus", "binanceus": "binanceus", "binance.us": "binanceus", "b": "binanceus",
+    "live": None,
 }
 HELP = (
     "Send: <PIN> <command> [bot]\n"
-    "Commands: status, pause, resume, help\n"
+    "Commands: status, pause, resume, help,\n"
+    "  buy <$ amount|all>, sell <$ amount|all>\n"
+    "  (buy/sell pause the grid first; send resume to restart it)\n"
     "Bot: kraken or binance (leave out for both)\n"
-    "Example: 1234 pause kraken"
+    "Examples: 1234 pause kraken   1234 buy 10   1234 sell all"
 )
+
+
+def trade_amount_ok(text):
+    """True for "all" or a positive dollar amount like 10 or 12.50."""
+    if text == "all":
+        return True
+    try:
+        return float(text.lstrip("$")) > 0
+    except ValueError:
+        return False
 
 
 @dataclass
@@ -49,12 +65,18 @@ def parse(text, pin, exchange):
         return Parsed(error="wrong or missing PIN")
     if len(words) < 2:
         return Parsed(error="no command given")
-    command, target = words[1], (words[2] if len(words) > 2 else "all")
+    command, rest = words[1], words[2:]
     if command not in COMMANDS:
         return Parsed(error=f"unknown command {command!r}")
+    if command in TRADE_COMMANDS:
+        if not rest or not trade_amount_ok(rest[0]):
+            return Parsed(error=f"{command} needs a dollar amount or 'all', e.g. {command} 10")
+        command = f"{command} {rest[0].lstrip('$')}"
+        rest = rest[1:]
+    target = rest[0] if rest else "all"
     if target != "all" and target not in BOT_NAMES:
         return Parsed(error=f"unknown bot {target!r}")
-    if target != "all" and BOT_NAMES[target] != exchange:
+    if target != "all" and BOT_NAMES[target] not in (None, exchange):
         return Parsed(for_me=False)
     return Parsed(command=command)
 

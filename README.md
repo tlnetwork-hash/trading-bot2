@@ -304,6 +304,43 @@ both settings files to change them. Phone alerts from each bot name their exchan
 `BINANCEUS_API_KEY` / `BINANCEUS_API_SECRET` (trading only, never withdrawals) and set
 `mode: live` in `config-binanceus.yaml`.
 
+### Live $50 SOL bot (real money)
+
+A fourth bot, `bot-sollive`, runs the **same SOL grid as the paper bot on port 8082, with
+real money** ($50 on Binance.US), so you can compare paper against live.
+
+| | |
+|---|---|
+| Settings | `config-sollive.yaml` (`mode: live`, `capital_usd: 50`) |
+| Saved data | `data-sollive/` |
+| Dashboard | `http://<tailscale-ip>:8083` |
+| Commands | `docker compose exec bot-sollive python -m bot status` |
+
+**How much can it lose?** Never more than what is in the Binance.US account: spot trading
+only, no margin or futures. On top of that, the **kill switch** fires if the bot's money falls
+10% below where it started ($50 -> $45): it cancels every order, **sells its SOL to cash**
+(`kill_switch_sells: true`), stops for good and sends an urgent alert. It never restarts by
+itself.
+
+**Taking over by hand.** You can buy or sell any time, from the server or your phone. A manual
+trade first pauses the grid (cancels its orders) so the bot's books stay right, then trades at
+market price, and the bot stays paused until you send `resume`.
+
+| What you want | Server | Phone (ntfy, live bot's command topic) |
+|---|---|---|
+| Sell all its SOL | `docker compose exec bot-sollive python -m bot sell all` | `<PIN> sell all` |
+| Sell $10 of SOL | `... python -m bot sell 10` | `<PIN> sell 10` |
+| Buy $10 of SOL | `... python -m bot buy 10` | `<PIN> buy 10` |
+| Buy with all its cash | `... python -m bot buy all` | `<PIN> buy all` |
+| Pause / resume / status | `... python -m bot pause` (etc.) | `<PIN> pause`, `<PIN> resume`, `<PIN> status` |
+
+The live bot listens on its **own** command topic (`NTFY_SOLLIVE_COMMAND_TOPIC` in `.env`), not
+the paper bots' topic, so a command meant for a paper bot can never move real money. Same PIN.
+
+Don't trade SOL/USD by hand in the Binance.US app while the bot runs; use `buy`/`sell` above so
+the bot knows what it holds. The API key must have **withdrawals off** and be **restricted to
+this server's IP address**.
+
 ### Viewing from any computer (Cloudflare)
 
 Tailscale needs its app on every device. To open the dashboards in **any browser** (a work
