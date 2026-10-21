@@ -85,6 +85,10 @@ alerts:
 
 paper:
   slippage_pct: 0.05     # extra price penalty on simulated market orders
+  # A simulated limit order only counts as filled once the price trades this
+  # % past it (a real order waits in line, so a touch isn't enough). Added
+  # 2026-10-20; fills before then used touch-only and look a bit rosier.
+  fill_through_pct: 0.05
 
 # Buttons at the top of the dashboard for switching between the bots'
 # dashboards. Over Tailscale each one is the same server address on a
