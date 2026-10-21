@@ -117,18 +117,25 @@ class PaperExchange(MarketData):
     """Simulates orders against live prices. `book` is saved with the bot state
     so simulated orders survive restarts."""
 
-    def __init__(self, symbol, book, fees, slippage_pct, client=None, exchange="kraken"):
+    def __init__(self, symbol, book, fees, slippage_pct, client=None, exchange="kraken",
+                 fill_through_pct=0.05):
         super().__init__(symbol, client, exchange)
         self.book = book
         self.fees = fees
         self.slippage_pct = slippage_pct
+        self.fill_through_pct = fill_through_pct
 
     def simulate(self, price):
+        # A real limit order waits in line behind everyone else at its price, so
+        # the price merely touching it doesn't mean it filled. Only count a fill
+        # once the price has traded *through* the order by fill_through_pct.
+        # The fill itself is still at the order's own price.
+        through = self.fill_through_pct / 100
         for order in self.book["orders"].values():
             if order["status"] != "open":
                 continue
-            if (order["side"] == "buy" and price <= order["price"]) or (
-                order["side"] == "sell" and price >= order["price"]
+            if (order["side"] == "buy" and price <= order["price"] * (1 - through)) or (
+                order["side"] == "sell" and price >= order["price"] * (1 + through)
             ):
                 order["status"] = "closed"
 

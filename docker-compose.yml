@@ -65,6 +65,37 @@ services:
       - "${DASHBOARD_BIND:-127.0.0.1}:8081:8080"
     logging: *logging
 
+  # Third bot: standalone SOL grid on Binance.US (paper), with its own
+  # settings (config-solgrid.yaml), data folder, and dashboard on port 8082.
+  #   docker compose exec bot-solgrid python -m bot status
+  bot-solgrid:
+    image: grid-bot
+    container_name: grid-bot-solgrid
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      BOT_SERVICE: bot-solgrid
+    volumes:
+      - ./config-solgrid.yaml:/app/config.yaml:ro
+      - ./data-solgrid:/app/data
+    logging: *logging
+
+  dashboard-solgrid:
+    image: grid-bot
+    container_name: grid-bot-solgrid-dashboard
+    command: ["python", "-m", "bot", "dashboard"]
+    restart: unless-stopped
+    depends_on: [bot-solgrid]
+    env_file: .env
+    environment:
+      BOT_SERVICE: bot-solgrid
+    volumes:
+      - ./config-solgrid.yaml:/app/config.yaml:ro
+      - ./data-solgrid:/app/data:ro
+    ports:
+      - "${DASHBOARD_BIND:-127.0.0.1}:8082:8080"
+    logging: *logging
+
   # Optional: lets you open the dashboards from any computer's browser behind a
   # Cloudflare Access login (README "Viewing from any computer"). Off unless
   # .env has COMPOSE_PROFILES=cloudflare and CLOUDFLARE_TUNNEL_TOKEN. It

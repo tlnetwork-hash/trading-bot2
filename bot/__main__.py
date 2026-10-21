@@ -45,11 +45,15 @@ def make_exchange(cfg, state):
     if cfg.mode == "live":
         return LiveExchange(cfg.symbol, cfg.api_key, cfg.api_secret, exchange=cfg.exchange)
     return PaperExchange(cfg.symbol, state["paper"], cfg.fees, cfg.paper_slippage_pct,
-                         exchange=cfg.exchange)
+                         exchange=cfg.exchange, fill_through_pct=cfg.paper_fill_through_pct)
 
 
 def make_notifier(cfg):
-    prefix = f"{cfg.symbol.split('/')[0]} grid {cfg.mode} ({cfg.exchange_name})"
+    if cfg.strategy == "trend":
+        coins = "/".join(sym.split("/")[0] for sym in cfg.trend.symbols)
+        prefix = f"{coins} trend {cfg.mode} ({cfg.exchange_name})"
+    else:
+        prefix = f"{cfg.symbol.split('/')[0]} grid {cfg.mode} ({cfg.exchange_name})"
     return Notifier(cfg.email, prefix, cfg.ntfy_url)
 
 
@@ -63,6 +67,9 @@ def run(cfg):
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
+
+    if cfg.strategy == "trend":
+        return run_trend(cfg, stop)
 
     state = load_state(cfg.state_path)
     if state is None:
@@ -83,6 +90,27 @@ def run(cfg):
         return
 
     GridBot(cfg, exchange, notifier, state).run_forever(stop)
+
+
+def run_trend(cfg, stop):
+    from .trend import TrendBot, new_trend_state
+    log.info("strategy: trend on %s, %d-day average", ", ".join(cfg.trend.symbols), cfg.trend.sma_days)
+    state = load_state(cfg.state_path)
+    if state is None:
+        state = new_trend_state(cfg)
+        save_state(cfg.state_path, state)
+        log.info("no saved trend state found, starting fresh")
+    notifier = make_notifier(cfg)
+    while not stop.is_set():
+        try:
+            bot = TrendBot(cfg, notifier, state)
+            break
+        except ccxt.NetworkError as e:
+            log.warning("cannot connect to %s yet (%s), retrying in 30s", cfg.exchange_name, e)
+            stop.wait(30)
+    else:
+        return
+    bot.run_forever(stop)
 
 
 def check(cfg):
@@ -120,6 +148,12 @@ def status(cfg):
     state = load_state(cfg.state_path)
     if state is None:
         print(f"No saved state for {cfg.mode} mode yet. Has the bot run?")
+        return
+    if cfg.strategy == "trend":
+        from .trend import TrendBot
+        bot = TrendBot.__new__(TrendBot)
+        bot.cfg, bot.state = cfg, state
+        print(bot.summary())
         return
     price = state.get("last_price") or 0
     bot = GridBot.__new__(GridBot)  # summary() only needs cfg and state

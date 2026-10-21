@@ -1,20 +1,19 @@
-# Grid bot settings. After editing, restart the bot:  docker compose restart
-#
-# Changes to the "grid" section only take effect the next time the grid is
-# built (first start, "resume", or "reset").
+# BTC grid bot on Binance.US. Until 2026-10-19 this slot was the Kraken SOL
+# grid, then briefly a Binance.US SOL grid; both runs are archived in data/.
+# The other Binance.US bot, config-binanceus.yaml, runs the BTC/ETH/SOL trend basket.
+# After editing, restart it:  docker compose restart bot
 
-# paper = simulated trades on real Kraken prices (no money at risk)
-# live  = real orders on your Kraken account
+# paper = simulated trades on real Binance.US prices (no money at risk)
+# live  = real orders on your Binance.US account
 mode: paper
 
-# Which exchange: kraken or binanceus. The Binance.US bot has its own file,
-# config-binanceus.yaml.
-exchange: kraken
+# Which exchange: kraken or binanceus.
+exchange: binanceus
 
-symbol: SOL/USD
+symbol: BTC/USD
 
 # How many US dollars the bot is allowed to use. It never touches more than
-# this, even if your Kraken account holds more.
+# this, even if your Binance.US account holds more.
 capital_usd: 400
 
 grid:
@@ -27,12 +26,11 @@ grid:
   max_levels: 20         # maximum number of grid lines
   fee_reserve_pct: 2     # % of capital kept aside for fees and rounding
 
-# Your Kraken fee tier. Used to simulate paper trades and to check that the
-# grid spacing is profitable. 0.40 / 0.80 is Kraken Pro's starting tier
-# (Tier 1, since July 2026). Check https://www.kraken.com/features/fee-schedule
+# Binance.US fees: 0% maker / 0.02% taker on all pairs for every account
+# (since April 2026). Check https://www.binance.us/fees
 fees:
-  maker_pct: 0.40
-  taker_pct: 0.80
+  maker_pct: 0.0
+  taker_pct: 0.02
 
 risk:
   # Kill switch: if the bot's money falls this % below where it started,
@@ -42,19 +40,19 @@ risk:
   #   pause    = cancel orders, stop, and email you (you then run "resume")
   #   recenter = automatically rebuild the grid around the new price
   breakout_action: recenter
-  # Sell SOL right away if the price falls out of the bottom of the grid,
+  # Sell BTC right away if the price falls out of the bottom of the grid,
   # instead of holding it while it keeps dropping.
   sell_on_breakout_down: true
   # Profit lock (a trailing stop on the bot's money). Once the bot is up
   # profit_lock_start_pct, it remembers its best gain. If it gives back so
   # much that only profit_lock_keep_pct of that gain is left, it sells all its
-  # SOL and pauses. Example: up 4% at best -> sells if it drops back to +2%.
+  # BTC and pauses. Example: up 4% at best -> sells if it drops back to +2%.
   # The stop only moves up and always stays above where it started.
   # Set profit_lock_start_pct to 0 to turn this off.
   profit_lock_start_pct: 2.0
   profit_lock_keep_pct: 50
   # After a stop-loss or profit-lock sale, start trading again by itself, but
-  # only at a good spot to buy: SOL has bounced restart_bounce_pct off its
+  # only at a good spot to buy: BTC has bounced restart_bounce_pct off its
   # lowest price since the sale (it stopped falling), the price is no higher
   # than where the bot sold, and at least restart_wait_minutes have passed.
   # The kill switch never restarts by itself.
@@ -72,6 +70,10 @@ alerts:
 
 paper:
   slippage_pct: 0.05     # extra price penalty on simulated market orders
+  # A simulated limit order only counts as filled once the price trades this
+  # % past it (a real order waits in line, so a touch isn't enough). Added
+  # 2026-10-20; fills before then used touch-only and look a bit rosier.
+  fill_through_pct: 0.05
 
 # Buttons at the top of the dashboard for switching between the bots'
 # dashboards. Over Tailscale each one is the same server address on a
@@ -79,6 +81,9 @@ paper:
 # any computer"), add each one's https address as url, e.g.
 #   - {label: Kraken, port: 8080, url: "https://kraken.example.com/"}
 dashboard:
+  # The price chart and live price on the dashboard come from Kraken (smoother
+  # candles than Binance.US). The bot still trades on Binance.US prices.
+  chart_exchange: kraken
   links:
-    - {label: Kraken, port: 8080, url: "https://k.tlnetwork.net/"}
-    - {label: Binance.US, port: 8081, url: "https://b.tlnetwork.net/"}
+    - {label: BTC grid, port: 8080, url: "https://k.tlnetwork.net/"}
+    - {label: Trend basket, port: 8081, url: "https://b.tlnetwork.net/"}

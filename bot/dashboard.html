@@ -109,7 +109,6 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
   <div class="botnav"><span class="label">Bots</span><nav class="switch" id="switch" aria-label="Switch between the bots' dashboards"></nav></div>
   <div class="sites"><span class="label">Exchange websites</span>
     <a href="https://www.binance.us/" target="_blank" rel="noopener noreferrer">Binance.US ↗</a>
-    <a href="https://www.kraken.com/" target="_blank" rel="noopener noreferrer">Kraken ↗</a>
   </div>
   <div id="banners"></div>
 
@@ -124,6 +123,7 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
 
   <section class="card price-card">
     <h2><span id="pc-symbol">Price</span> <span class="pc-last" id="pc-last"></span> <span class="pc-chg" id="pc-chg"></span>
+      <span class="ranges" role="group" aria-label="Coin" id="pc-coins" hidden></span>
       <span class="live" id="live" title="Live prices stream straight from the exchange to your browser"><span class="dot"></span><span>connecting</span></span>
       <span class="ranges" role="group" aria-label="Price chart range" id="pc-ranges">
         <button data-prange="1h">1H</button><button data-prange="6h">6H</button><button data-prange="24h">24H</button><button data-prange="7d">7D</button><button data-prange="30d">30D</button>
@@ -164,7 +164,7 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
 
   <div class="cols">
     <section class="card">
-      <h2>Grid <span class="muted" id="grid-sub" style="font-weight:400"></span></h2>
+      <h2><span id="grid-title">Grid</span> <span class="muted" id="grid-sub" style="font-weight:400"></span></h2>
       <div class="scroll"><table class="ladder"><thead><tr><th>Level</th><th class="num">Price</th><th>Order</th><th class="num">Amount</th></tr></thead>
         <tbody id="ladder"></tbody></table></div>
     </section>
@@ -201,8 +201,9 @@ function timeLabel(iso, withDate) {
 function render() {
   const d = data;
   const base = d.symbol.split("/")[0];
-  $("title").textContent = d.exchange_name + " " + d.symbol;
-  document.title = d.exchange_name + " grid - " + usd(d.equity);
+  $("title").textContent = d.trend ? d.exchange_name + " trend: " + d.trend.rows.map((r) => r.coin).join(" / ")
+                                   : d.exchange_name + " " + d.symbol;
+  document.title = d.exchange_name + (d.trend ? " trend - " : " grid - ") + usd(d.equity);
   renderSwitch(d);
   $("live").title = "Live prices stream straight from " + d.chart_exchange_name + " to your browser";
   $("mode").textContent = d.mode.toUpperCase();
@@ -225,9 +226,10 @@ function render() {
   const change = (d.equity / d.start_equity - 1) * 100;
   $("equity").textContent = usd(d.equity);
   $("equity-sub").textContent = pct(change) + " since start (" + usd(d.start_equity) + ")";
-  $("price-label").textContent = d.symbol + " price";
-  $("price").textContent = usd(ownLive() ? livePrice ?? d.price : d.price);
-  $("price-sub").textContent = d.grid ? "grid " + usd(d.grid.lower) + " - " + usd(d.grid.upper) : "no grid";
+  $("price-label").textContent = chartSymbol() + " price";
+  const trow = d.trend && d.trend.rows.find((r) => r.symbol === chartSymbol());
+  $("price").textContent = usd(trow ? trow.price : ownLive() ? livePrice ?? d.price : d.price);
+  $("price-sub").textContent = d.trend ? "trend basket (one of " + d.trend.rows.length + " coins)" : d.grid ? "grid " + usd(d.grid.lower) + " - " + usd(d.grid.upper) : "no grid";
   $("profit").textContent = usd(d.stats.grid_profit);
   $("profit-sub").textContent = d.stats.round_trips + " round trips, " + d.stats.buys + " buys / " + d.stats.sells + " sells";
   $("fees").textContent = usd(d.stats.fees);
@@ -285,6 +287,7 @@ function sideCell(side) {
 }
 
 function renderLadder(base) {
+  if (data.trend) { renderTrendTable(); return; }
   const g = data.grid;
   if (!g) { $("ladder").innerHTML = `<tr><td colspan="4" class="empty">No grid right now</td></tr>`; $("grid-sub").textContent = ""; return; }
   $("grid-sub").textContent = `${g.levels.length} levels, ${g.spacing_pct.toFixed(2)}% apart`;
@@ -304,8 +307,28 @@ function renderLadder(base) {
   $("ladder").innerHTML = rows;
 }
 
+function renderTrendTable() {
+  const tr = data.trend;
+  $("grid-title").textContent = "Trend signals";
+  $("grid-sub").textContent = "checked daily vs " + tr.sma_days + "-day average";
+  document.querySelector(".ladder thead").innerHTML = `<tr><th>Coin</th><th class="num">Last close</th><th class="num">${tr.sma_days}-day avg</th><th>Position</th></tr>`;
+  $("ladder").innerHTML = tr.rows.map((r) => {
+    const sig = r.up == null ? `<span class="muted">not checked</span>` : r.up ? `<span style="color:var(--buy)">above &rarr; hold</span>` : `<span style="color:var(--sell)">below &rarr; cash</span>`;
+    return `<tr><td><b>${esc(r.coin)}</b></td><td class="num">${usd(r.close)}</td><td class="num">${usd(r.sma)}</td><td>${sig}</td></tr>`;
+  }).join("");
+}
+
 function renderStats(base) {
   const d = data, b = d.balances;
+  if (d.trend) {
+    const items = d.trend.rows.map((r) => [r.coin, r.qty > 0
+      ? `holding ${r.qty.toFixed(6)} (${usd(r.value)})` : `cash ${usd(r.cash)}`]);
+    items.push(["Started", usd(d.start_equity)],
+      ["Change", usd(d.equity - d.start_equity) + " (" + pct((d.equity / d.start_equity - 1) * 100) + ")"],
+      ["Running since", timeLabel(d.created_at, true)]);
+    $("stats").innerHTML = items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+    return;
+  }
   const items = [
     ["USD", usd(b.quote)],
     [base, b.base.toFixed(6) + " (" + usd(b.base * d.price) + ")"],
@@ -320,11 +343,16 @@ function renderStats(base) {
   $("stats").innerHTML = items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
 }
 
+function tradeAmount(r, base) {
+  const coin = (r.kind || "").startsWith("trend ") ? r.kind.slice(6) : base;
+  return r.amount.toFixed(coin === "BTC" ? 6 : 4) + " " + coin;
+}
+
 function renderTrades(base) {
   const t = data.trades.slice().reverse();
   $("trades").innerHTML = t.length ? t.map((r) => `<tr>
       <td>${timeLabel(r.t, true)}</td><td>${sideCell(r.side)}</td>
-      <td class="num">${r.amount.toFixed(4)} ${base}</td><td class="num">${usd(r.price)}</td>
+      <td class="num">${tradeAmount(r, base)}</td><td class="num">${usd(r.price)}</td>
       <td class="num hide-sm">${usd(r.fee, 4)}</td><td class="num">${r.profit == null ? "" : usd(r.profit, 4)}</td>
       <td class="muted hide-sm">${esc(r.kind)}</td></tr>`).join("")
     : `<tr><td colspan="7" class="empty">No trades yet</td></tr>`;
@@ -406,6 +434,35 @@ const CANDLE_MS = { "1h": 60e3, "6h": 300e3, "24h": 900e3, "7d": 3600e3, "30d": 
 let pRange = "24h";
 try { pRange = localStorage.getItem("prange") || "24h"; } catch (e) {}
 if (!CANDLE_MS[pRange]) pRange = "24h";
+let chartSym = null;   // coin shown on the price chart (trend bot only; else the bot's symbol)
+try { chartSym = localStorage.getItem("pcoin"); } catch (e) {}
+function chartSymbol() { return (data && data.trend && chartSym) || (data && data.symbol) || ""; }
+
+function setupCoins() {
+  if (!data || !data.trend) return;
+  const syms = data.trend.rows.map((r) => r.symbol);
+  const first = !$("pc-coins").childElementCount;
+  if (!syms.includes(chartSym)) chartSym = syms[0];
+  if (first) {
+    $("pc-coins").hidden = false;
+    $("pc-coins").innerHTML = syms.map((s) => `<button data-sym="${esc(s)}">${esc(s.split("/")[0])}</button>`).join("");
+    $("pc-coins").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => switchCoin(b.dataset.sym)));
+    loadCandles();
+  }
+  $("pc-coins").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sym === chartSym)));
+}
+
+function switchCoin(sym) {
+  if (sym === chartSym) return;
+  chartSym = sym;
+  try { localStorage.setItem("pcoin", sym); } catch (e) {}
+  if (ws) { ws.onclose = null; try { ws.close(); } catch (e) {} ws = null; }
+  livePrice = null; setLive(false);
+  candles = []; zoomCount = 0; zoomBack = 0;
+  setupCoins(); render(); renderPriceChart();
+  connectLive(data.chart_exchange, sym); loadCandles();
+}
+
 let candles = [], candleCount = 0, livePrice = null, liveOn = false, ws = null, wsFeed = null, drawQueued = false;
 
 // Zoom: how many candles are on screen (0 = all) and how many newer candles are
@@ -471,9 +528,11 @@ function queueDraw() {
 
 async function loadCandles() {
   try {
-    const res = await fetch("api/candles?range=" + pRange, { cache: "no-store" });
+    const sym = chartSymbol();
+    const res = await fetch("api/candles?range=" + pRange + (sym ? "&symbol=" + encodeURIComponent(sym) : ""), { cache: "no-store", redirect: "manual" });
+    if (!res.ok) return;
     const body = await res.json();
-    if (body.error || body.range !== pRange) return;
+    if (body.error || body.range !== pRange || (sym && body.symbol !== sym)) return;
     candles = body.candles; candleCount = candles.length;
     if (livePrice != null && liveOn) applyTick(livePrice, Date.now());
     if (!liveOn && candles.length) livePrice = null;
@@ -534,7 +593,7 @@ function renderPriceChart() {
   const W = svg.clientWidth || 600, H = 320, L = 6, R = 62, T = 10, B = 26;
   const n = candles.length;
   const price = n ? candles[n - 1][4] : null;
-  if (data) $("pc-symbol").textContent = data.symbol + (ownLive() ? "" : " on " + data.chart_exchange_name);
+  if (data) $("pc-symbol").textContent = chartSymbol() + (ownLive() ? "" : " on " + data.chart_exchange_name);
   if (price != null) {
     const first = candles[0][1], chg = (price / first - 1) * 100;
     $("pc-last").textContent = usd(price);
@@ -597,6 +656,7 @@ function renderPriceChart() {
 
   // the bot's trades in this window
   if (data) for (const tr of data.trades) {
+    if (data.trend && tr.kind !== "trend " + chartSymbol().split("/")[0]) continue;
     const t = new Date(tr.t).getTime();
     if (t < t0 || t > vis[vn - 1][0] + step || tr.price < lo || tr.price > hi) continue;
     const x = xt(Math.min(t, vis[vn - 1][0])), yy = y(tr.price);
@@ -716,20 +776,39 @@ $("live").lastElementChild.textContent = "connecting";
 loadCandles();
 setInterval(loadCandles, 10000);
 
+// Cloudflare Access answers an expired login with a redirect to its sign-in page,
+// which the browser blocks for background requests. Spot that and reload the
+// page so Cloudflare can ask you to sign in again.
+let failures = 0;
+function loginExpired() {
+  $("updated").innerHTML = 'Login expired - <a href="">tap to sign in again</a>';
+  if (document.visibilityState === "visible" && !sessionStorage.getItem("relogin")) {
+    try { sessionStorage.setItem("relogin", "1"); } catch (e) {}
+    setTimeout(() => location.reload(), 1500);
+  }
+}
+
 async function refresh() {
   try {
-    const res = await fetch("api/state", { cache: "no-store" });
+    const res = await fetch("api/state", { cache: "no-store", redirect: "manual" });
+    if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) { loginExpired(); return; }
+    failures = 0;
+    try { sessionStorage.removeItem("relogin"); } catch (e) {}
     if (res.ok) {
       const body = await res.json();
       if (body.error) { $("updated").textContent = body.error; }
-      else { data = body; render(); connectLive(data.chart_exchange, data.symbol); renderPriceChart(); }
+      else { data = body; setupCoins(); render(); connectLive(data.chart_exchange, chartSymbol()); renderPriceChart(); }
     }
   } catch (e) {
-    $("updated").textContent = "dashboard unreachable - retrying";
+    failures += 1;
+    // One miss is usually the bot restarting or the phone waking up; say so only if it keeps failing.
+    if (failures >= 2) $("updated").textContent = "can't reach the server - retrying";
   }
 }
 refresh();
 setInterval(refresh, 15000);
+// Phones pause pages in the background; refresh right away when you come back.
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { refresh(); loadCandles(); } });
 </script>
 </body>
 </html>

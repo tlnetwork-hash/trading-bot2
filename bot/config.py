@@ -28,6 +28,13 @@ class GridConfig:
 
 
 @dataclass
+class TrendConfig:
+    # Coins to hold while each one's daily close is above its sma_days average.
+    symbols: list = field(default_factory=lambda: ["BTC/USD", "ETH/USD", "SOL/USD"])
+    sma_days: int = 50
+
+
+@dataclass
 class FeeConfig:
     maker_pct: float = 0.40
     taker_pct: float = 0.80
@@ -85,12 +92,15 @@ class EmailSecrets:
 @dataclass
 class Config:
     mode: str = "paper"
+    strategy: str = "grid"         # grid | trend
     exchange: str = "kraken"
     symbol: str = "SOL/USD"
     capital_usd: float = 400.0
     poll_seconds: int = 30
     paper_slippage_pct: float = 0.05
+    paper_fill_through_pct: float = 0.05
     grid: GridConfig = field(default_factory=GridConfig)
+    trend: TrendConfig = field(default_factory=TrendConfig)
     fees: FeeConfig = field(default_factory=FeeConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     alerts: AlertConfig = field(default_factory=AlertConfig)
@@ -130,8 +140,13 @@ class Config:
         return f"{self.ntfy_server.rstrip('/')}/{self.ntfy_command_topic}"
 
     @property
+    def _file_tag(self):
+        """Trend runs keep their own files, so switching back to grid finds its old state."""
+        return f"trend-{self.mode}" if self.strategy == "trend" else self.mode
+
+    @property
     def state_path(self):
-        return self.data_dir / f"state-{self.mode}.json"
+        return self.data_dir / f"state-{self._file_tag}.json"
 
     @property
     def command_path(self):
@@ -139,15 +154,22 @@ class Config:
 
     @property
     def history_path(self):
-        return self.data_dir / f"history-{self.mode}.jsonl"
+        return self.data_dir / f"history-{self._file_tag}.jsonl"
 
     @property
     def trades_path(self):
-        return self.data_dir / f"trades-{self.mode}.jsonl"
+        return self.data_dir / f"trades-{self._file_tag}.jsonl"
 
     def validate(self):
         if self.mode not in ("paper", "live"):
             raise ConfigError("mode must be 'paper' or 'live'")
+        if self.strategy not in ("grid", "trend"):
+            raise ConfigError("strategy must be 'grid' or 'trend'")
+        if self.strategy == "trend":
+            if self.mode != "paper":
+                raise ConfigError("the trend strategy is paper-only for now")
+            if not self.trend.symbols or self.trend.sma_days < 2:
+                raise ConfigError("trend needs at least one symbol and sma_days of 2 or more")
         if self.exchange not in EXCHANGES:
             raise ConfigError(f"exchange must be one of: {', '.join(EXCHANGES)}")
         if self.chart_source not in EXCHANGES:
@@ -215,11 +237,14 @@ def load_config(path="config.yaml", env=None):
     prefix = exchange.upper()
     cfg = Config(
         mode=str(raw.get("mode", "paper")).lower(),
+        strategy=str(raw.get("strategy", "grid")).lower(),
+        trend=_section(TrendConfig, raw.get("trend")),
         exchange=exchange,
         symbol=raw.get("symbol", "SOL/USD"),
         capital_usd=float(raw.get("capital_usd", 400)),
         poll_seconds=int((raw.get("loop") or {}).get("poll_seconds", 30)),
         paper_slippage_pct=float((raw.get("paper") or {}).get("slippage_pct", 0.05)),
+        paper_fill_through_pct=float((raw.get("paper") or {}).get("fill_through_pct", 0.05)),
         grid=_section(GridConfig, raw.get("grid")),
         fees=_section(FeeConfig, raw.get("fees")),
         risk=_section(RiskConfig, raw.get("risk")),
