@@ -6,6 +6,8 @@
     python -m bot pause      cancel all orders and stop trading
     python -m bot resume     build a fresh grid and start trading again
     python -m bot reset      cancel orders, sell the bot's coins, start over
+    python -m bot buy 10     pause the grid and market-buy $10 of coin ("all" = all cash)
+    python -m bot sell all   pause the grid and market-sell the bot's coins (or a $ amount)
     python -m bot dashboard  serve the read-only web dashboard on port 8080
 """
 
@@ -171,9 +173,17 @@ def send_command(cfg, command):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m bot", description="Grid trading bot")
     parser.add_argument("command", nargs="?", default="run",
-                        choices=["run", "check", "status", "pause", "resume", "reset", "dashboard"])
+                        choices=["run", "check", "status", "pause", "resume", "reset", "dashboard",
+                                 "buy", "sell"])
+    parser.add_argument("amount", nargs="?", default="",
+                        help="for buy/sell: a dollar amount (e.g. 10) or 'all'")
     parser.add_argument("--config", default="config.yaml")
     args = parser.parse_args(argv)
+    if args.command in ("buy", "sell"):
+        from .remote import trade_amount_ok
+        if not trade_amount_ok(args.amount.lower()):
+            parser.error(f"{args.command} needs a dollar amount or 'all', e.g. {args.command} 10")
+        args.command = f"{args.command} {args.amount.lower().lstrip('$')}"
 
     try:
         cfg = load_config(args.config)

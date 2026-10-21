@@ -1,0 +1,61 @@
+# LIVE $50 SOL grid on Binance.US. Same strategy and settings as the paper
+# SOL grid (config-solgrid.yaml) so the two can be compared side by side,
+# but with real money. Created 2026-10-21.
+# Own data folder (data-sollive), own dashboard on port 8083, and its own
+# private phone-command topic (set in docker-compose.yml).
+# After editing:  docker compose up -d bot-sollive dashboard-sollive
+
+# HARD LIMITS on how much can be lost:
+#  1. The Binance.US account only holds what you deposit (plan: $50), and this
+#     is spot trading only: no margin, no futures, no borrowing. The bot can
+#     never lose more than what is in the account.
+#  2. capital_usd: the bot never uses more than this, even if the account
+#     holds more.
+#  3. Kill switch (risk.max_drawdown_pct): if the bot's money falls 10% below
+#     where it started ($50 -> $45), it cancels every order, SELLS ITS SOL to
+#     cash, stops for good, and sends an urgent phone alert. It never restarts
+#     by itself; you send "resume" when you're ready.
+#  4. The API key must have withdrawals OFF and be locked to this server's IP.
+mode: live
+
+exchange: binanceus
+symbol: SOL/USD
+capital_usd: 50
+
+grid:
+  timeframe: 1h
+  atr_period: 14
+  atr_multiplier: 6
+  min_range_pct: 5
+  max_range_pct: 20
+  min_spacing_pct: 1.0
+  max_levels: 20         # same as the paper bot; ~$2.40 per order, above the $1 minimum
+  fee_reserve_pct: 2
+
+# Binance.US: 0% maker / 0.02% taker on all spot pairs (since April 2026).
+fees:
+  maker_pct: 0.0
+  taker_pct: 0.02
+
+risk:
+  max_drawdown_pct: 10
+  kill_switch_sells: true
+  breakout_action: recenter
+  sell_on_breakout_down: true
+  profit_lock_start_pct: 2.0
+  profit_lock_keep_pct: 50
+  auto_restart: true
+  restart_bounce_pct: 2.0
+  restart_wait_minutes: 60
+
+loop:
+  poll_seconds: 30
+
+alerts:
+  email_on_every_fill: true       # also a silent phone alert for every trade
+  daily_summary_hour_utc: 13
+  error_email_cooldown_minutes: 30
+
+dashboard:
+  chart_exchange: kraken
+  links: []
