@@ -108,7 +108,11 @@ services:
     image: grid-bot-live
     container_name: grid-bot-sollive
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
+      # The Binance.US key lives here so it can be added from the ubuntu login.
+      - path: /home/ubuntu/binance-us-keys.env
+        required: false
     environment:
       BOT_SERVICE: bot-sollive
       NTFY_COMMAND_TOPIC: ${NTFY_SOLLIVE_COMMAND_TOPIC:-}
@@ -124,7 +128,11 @@ services:
     command: ["python", "-m", "bot", "dashboard"]
     restart: unless-stopped
     depends_on: [bot-sollive]
-    env_file: .env
+    env_file:
+      - .env
+      # The Binance.US key lives here so it can be added from the ubuntu login.
+      - path: /home/ubuntu/binance-us-keys.env
+        required: false
     environment:
       BOT_SERVICE: bot-sollive
       NTFY_COMMAND_TOPIC: ${NTFY_SOLLIVE_COMMAND_TOPIC:-}
