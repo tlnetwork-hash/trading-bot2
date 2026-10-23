@@ -152,7 +152,7 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: grid-bot-cloudflared
     profiles: [cloudflare]
-    command: ["tunnel", "--no-autoupdate", "run"]
+    command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "run"]   # http2: steadier than QUIC here (stale-connection hangs)
     restart: unless-stopped
     depends_on: [dashboard, dashboard-binanceus]
     environment:
