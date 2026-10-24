@@ -8,6 +8,7 @@ services:
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data           # saved state and log files live here
+      - ./data-risk:/app/risk:ro   # market risk level from risk-monitor
     logging: &logging
       driver: json-file
       options:
@@ -47,6 +48,7 @@ services:
     volumes:
       - ./config-binanceus.yaml:/app/config.yaml:ro
       - ./data-binanceus:/app/data
+      - ./data-risk:/app/risk:ro
     logging: *logging
 
   dashboard-binanceus:
@@ -78,6 +80,24 @@ services:
     volumes:
       - ./config-solgrid.yaml:/app/config.yaml:ro
       - ./data-solgrid:/app/data
+      - ./data-risk:/app/risk:ro
+    logging: *logging
+
+  # Market risk monitor: scores market risk every 10 minutes and writes
+  # data-risk/risk.json. Paper bots with risk.guard: true hold off on new buys
+  # while it says HIGH. Check it by hand:
+  #   docker compose exec risk-monitor python -m bot risk-now
+  risk-monitor:
+    image: grid-bot
+    container_name: grid-bot-risk
+    command: ["python", "-m", "bot", "risk"]
+    restart: unless-stopped
+    depends_on: [bot]
+    env_file: .env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./risk-calendar.yaml:/app/risk-calendar.yaml:ro
+      - ./data-risk:/app/risk
     logging: *logging
 
   dashboard-solgrid:

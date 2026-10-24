@@ -111,6 +111,7 @@ class GridBot:
         if st["status"] == "paused" and st.get("resume_at_break_even"):
             self._check_break_even_resume(price)
 
+        self._apply_risk_guard()
         if st["status"] == "running" and st["grid"] is None:
             self._build_grid(price)
         if st["status"] != "halted" and self._check_kill_switch(price):
@@ -151,8 +152,63 @@ class GridBot:
 
     # ------------------------------------------------------------------ grid
 
+    # ------------------------------------------------------------ risk guard
+
+    def _risk_high(self):
+        if not self.cfg.risk.guard:
+            return False
+        from .risk import current_level
+        return current_level() == "high"
+
+    def _apply_risk_guard(self):
+        """While market risk is HIGH, cancel open buy orders and hold new ones;
+        put them back when risk drops. Sell orders are never touched."""
+        st = self.state
+        high = self._risk_high()
+        if high and not st.get("risk_on"):
+            st["risk_on"] = True
+            held = st.setdefault("risk_held", [])
+            grid_id = (st.get("grid") or {}).get("created_at")
+            for key, order in list(st["orders"].items()):
+                if order["side"] != "buy":
+                    continue
+                remaining = order["amount"]
+                if order["id"] is not None:
+                    self.ex.cancel_order(order["id"])
+                    info = self.ex.fetch_order(order["id"])
+                    if info.filled > 0:
+                        amount, fill_price, fee = self._apply_fill("buy", info)
+                        self._log_trade("before-cancel", "buy", amount, fill_price, fee)
+                        st["stats"]["buys"] += 1
+                        remaining = self.ex.round_amount(order["amount"] - info.filled)
+                    self.ex.forget_order(order["id"])
+                del st["orders"][key]
+                if remaining >= self.ex.min_amount:
+                    held.append({"index": int(key), "amount": remaining, "grid": grid_id})
+            self.save()
+            log.warning("risk HIGH: holding %d buy orders", len(held))
+            self.notifier.send("Risk guard ON",
+                               f"Market risk is HIGH, so new buy orders are on hold "
+                               f"({len(held)} paused). Sell orders keep working.")
+        elif not high and st.get("risk_on"):
+            st["risk_on"] = False
+            held, st["risk_held"] = st.get("risk_held", []), []
+            grid = st.get("grid")
+            placed = 0
+            for h in held:
+                if grid and h.get("grid") == grid.get("created_at") and 0 <= h["index"] < len(grid["levels"]):
+                    self._place(h["index"], "buy", h["amount"])
+                    placed += 1
+            self.save()
+            log.info("risk back to normal: restored %d buy orders", placed)
+            self.notifier.send("Risk guard OFF",
+                               f"Market risk dropped, buying is back on ({placed} buy orders restored).",
+                               priority="low")
+
     def _build_grid(self, price):
         st, g = self.state, self.cfg.grid
+        if st.get("risk_on"):
+            return  # wait for risk to drop before building/rebuying into a grid
         try:
             candles = self.ex.ohlcv(g.timeframe, g.atr_period + 5)
             atr = average_true_range(candles, g.atr_period)
@@ -228,6 +284,12 @@ class GridBot:
         pending (id None) and is retried on the next tick."""
         orders = self.state["orders"]
         key = str(index)
+        if side == "buy" and self.state.get("risk_on"):
+            grid_id = (self.state.get("grid") or {}).get("created_at")
+            self.state.setdefault("risk_held", []).append(
+                {"index": index, "amount": amount, "grid": grid_id})
+            log.info("risk HIGH: holding buy at level %d", index)
+            return
         if key in orders:
             # Happens when price swings across several levels within one poll:
             # the order in this slot will fill next, then this one goes in.
@@ -338,6 +400,7 @@ class GridBot:
             del self.state["orders"][key]
             self.save()
         self.state["deferred"] = []
+        self.state["risk_held"] = []  # held buys belonged to the grid being torn down
 
     # ---------------------------------------------------------------- safety
 

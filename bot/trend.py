@@ -95,6 +95,9 @@ class TrendBot:
         self._handle_command(prices)
         st = self.state
         today = utcnow().date().isoformat()
+        if st.get("risk_blocked") and not self._risk_high():
+            st["risk_blocked"] = False
+            st["last_signal_day"] = None  # re-check the buys that were held back
         if st["status"] == "running" and st["last_signal_day"] != today:
             self._evaluate(prices, today)
         self._check_kill_switch(prices)
@@ -111,6 +114,12 @@ class TrendBot:
     def equity(self, prices=None):
         prices = prices or self.state["prices"]
         return sum(sl["cash"] + sl["qty"] * prices.get(s, 0) for s, sl in self.state["sleeves"].items())
+
+    def _risk_high(self):
+        if not self.cfg.risk.guard:
+            return False
+        from .risk import current_level
+        return current_level() == "high"
 
     def _signal(self, sym):
         n = self.cfg.trend.sma_days
@@ -137,6 +146,13 @@ class TrendBot:
             log.info("%s close %.2f vs %d-day avg %.2f -> %s", sym, sig["close"],
                      self.cfg.trend.sma_days, sig["sma"], "HOLD" if sig["up"] else "CASH")
             if sig["up"] and sl["qty"] == 0 and sl["cash"] > 0:
+                if self._risk_high():
+                    st["risk_blocked"] = True
+                    log.warning("risk HIGH: skipping %s buy for now", sym)
+                    self.notifier.send(f"Risk guard: {sym.split('/')[0]} buy on hold",
+                                       "The trend turned up but market risk is HIGH. "
+                                       "The bot will re-check once risk drops.", priority="low")
+                    continue
                 self._trade(sym, "buy", prices[sym], "trend turned up")
             elif not sig["up"] and sl["qty"] > 0:
                 self._trade(sym, "sell", prices[sym], "trend turned down")

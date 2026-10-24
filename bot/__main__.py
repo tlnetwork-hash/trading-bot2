@@ -174,7 +174,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m bot", description="Grid trading bot")
     parser.add_argument("command", nargs="?", default="run",
                         choices=["run", "check", "status", "pause", "resume", "reset", "dashboard",
-                                 "buy", "sell"])
+                                 "buy", "sell", "risk", "risk-now"])
     parser.add_argument("amount", nargs="?", default="",
                         help="for buy/sell: a dollar amount (e.g. 10) or 'all'")
     parser.add_argument("--config", default="config.yaml")
@@ -206,6 +206,22 @@ def main(argv=None):
             sys.exit(f"Cannot reach {cfg.exchange_name} from this server: {e}")
     elif args.command == "status":
         status(cfg)
+    elif args.command in ("risk", "risk-now"):
+        from . import risk
+        from .exchange import make_client
+        client = make_client("binanceus")
+        if args.command == "risk-now":
+            pts, reasons, facts = risk.score(client)
+            print(f"Score {pts} -> {risk.level_for(pts, 'normal').upper()}")
+            print("\n".join(reasons) or "No warning signs.")
+            print(facts)
+            return
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+        stop = threading.Event()
+        signal.signal(signal.SIGTERM, lambda *_: stop.set())
+        notifier = Notifier(cfg.email, "Risk monitor", cfg.ntfy_url)
+        notifier.send("Risk monitor started", "Checking market risk every 10 minutes.", priority="low")
+        risk.run_monitor(notifier, client, stop)
     elif args.command == "dashboard":
         from .dashboard import serve
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")

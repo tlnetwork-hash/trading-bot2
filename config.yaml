@@ -33,6 +33,7 @@ fees:
   taker_pct: 0.02
 
 risk:
+  guard: true           # follow the market risk monitor (hold new buys while HIGH)
   # Kill switch: if the bot's money falls this % below where it started,
   # cancel all orders, stop trading, and email you.
   max_drawdown_pct: 10

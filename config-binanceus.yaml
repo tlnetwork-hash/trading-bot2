@@ -46,6 +46,7 @@ fees:
   taker_pct: 0.02
 
 risk:
+  guard: true           # follow the market risk monitor (hold new buys while HIGH)
   # Kill switch: if the bot's money falls this % below where it started,
   # cancel all orders, stop trading, and email you.
   # 40 for the trend strategy (its backtests dipped 31-43%); use 10 for grid.

@@ -63,6 +63,9 @@ class RiskConfig:
     # (and it kept its coins), start trading again by itself once what it holds
     # is worth its starting amount again (break-even).
     resume_at_break_even: bool = False
+    # Follow the market risk monitor (bot/risk.py): hold off on new buys while
+    # its level is HIGH. Off unless a config turns it on.
+    guard: bool = False
 
 
 @dataclass
