@@ -40,13 +40,14 @@ fees:
 risk:
   max_drawdown_pct: 10
   kill_switch_sells: true
-  breakout_action: recenter
-  sell_on_breakout_down: true
+  breakout_action: pause
+  sell_on_breakout_down: false
   profit_lock_start_pct: 2.0
   profit_lock_keep_pct: 50
   auto_restart: true
   restart_bounce_pct: 2.0
   restart_wait_minutes: 60
+  resume_at_break_even: true   # if paused below the grid, restart by itself once back to $50
 
 loop:
   poll_seconds: 30

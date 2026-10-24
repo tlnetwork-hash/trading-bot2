@@ -59,6 +59,10 @@ class RiskConfig:
     auto_restart: bool = True
     restart_bounce_pct: float = 2.0
     restart_wait_minutes: int = 60
+    # When the bot pauses because the price fell out of the bottom of the grid
+    # (and it kept its coins), start trading again by itself once what it holds
+    # is worth its starting amount again (break-even).
+    resume_at_break_even: bool = False
 
 
 @dataclass

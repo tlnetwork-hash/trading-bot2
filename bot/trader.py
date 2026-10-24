@@ -108,6 +108,8 @@ class GridBot:
         st = self.state  # "reset" replaces the state object
         if st["status"] == "paused" and st.get("rebuy"):
             self._check_rebuy(price)
+        if st["status"] == "paused" and st.get("resume_at_break_even"):
+            self._check_break_even_resume(price)
 
         if st["status"] == "running" and st["grid"] is None:
             self._build_grid(price)
@@ -420,6 +422,34 @@ class GridBot:
             self._build_grid(price)
         else:
             self._pause(reason)
+            if direction == "below" and self.cfg.risk.resume_at_break_even:
+                st = self.state
+                st["resume_at_break_even"] = True
+                st["status_reason"] = reason + " (holding; restarts by itself at break-even)"
+                self.save()
+                self.notifier.send(
+                    "Will restart at break-even",
+                    f"Holding the coins. The bot restarts by itself once they're worth "
+                    f"${st['start_equity']:,.2f} again (about ${self.break_even_price():,.2f} per "
+                    f"{self.ex.base}). Send pause to cancel that.")
+
+    def break_even_price(self):
+        st, b = self.state, self.state["balances"]
+        if b["base"] <= 0:
+            return 0.0
+        return (st["start_equity"] - b["quote"]) / b["base"]
+
+    def _check_break_even_resume(self, price):
+        st = self.state
+        if self.equity(price) < st["start_equity"]:
+            return
+        log.info("back to break-even at %.4f, resuming", price)
+        self._resume(price)
+        self.notifier.send(
+            "Back to break-even, restarting",
+            f"{self.ex.base} is at ${price:,.2f}, so the bot's money is back to "
+            f"${self.equity(price):,.2f}. Building a new grid around this price.",
+            priority="high")
 
     def _sell_all(self, price, kind):
         """Market-sell every coin the bot holds. Returns a line describing the sale."""
@@ -560,7 +590,7 @@ class GridBot:
         if command == "pause":
             if st["status"] == "running":
                 self._pause("paused by you")
-            elif st.pop("rebuy", None):
+            elif st.pop("rebuy", None) or st.pop("resume_at_break_even", None):
                 st["status_reason"] = "paused by you (automatic restart cancelled)"
                 self.save()
                 self.notifier.send("Automatic restart cancelled",
@@ -603,6 +633,7 @@ class GridBot:
             st["grid"] = None
             st["status"] = "paused"
         st.pop("rebuy", None)  # you're in control now; no automatic restart
+        st.pop("resume_at_break_even", None)
 
         if side == "buy":
             spend = b["quote"] if usd is None else min(usd, b["quote"])
@@ -642,6 +673,7 @@ class GridBot:
         # The profit lock starts over from today's value.
         st["lock"] = {"base": self.equity(price), "peak": self.equity(price)}
         st.pop("rebuy", None)
+        st.pop("resume_at_break_even", None)
         self._cancel_all()
         st["grid"] = None
         st["status"] = "running"

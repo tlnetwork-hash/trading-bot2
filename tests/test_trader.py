@@ -405,3 +405,39 @@ def test_kill_switch_does_not_auto_restart(make_bot, cfg, clock):
     kraken.px = 100
     bot.tick()
     assert bot.state["status"] == "halted" and "rebuy" not in bot.state
+
+
+def test_breakout_holds_then_resumes_at_break_even(make_bot, cfg):
+    cfg.risk.sell_on_breakout_down = False
+    cfg.risk.resume_at_break_even = True
+    bot, kraken, notifier = make_bot()
+    bot.tick()
+    kraken.px = 137   # just below the grid -> pause, keep coins
+    bot.tick()
+    st = bot.state
+    assert st["status"] == "paused" and st["resume_at_break_even"]
+    assert "Will restart at break-even" in notifier.subjects()
+    be = bot.break_even_price()
+    kraken.px = round(be * 0.99, 2)   # still under water: stays paused
+    bot.tick()
+    assert bot.state["status"] == "paused"
+    kraken.px = round(be * 1.001, 2)  # back to break-even: restarts
+    bot.tick()
+    st = bot.state
+    assert st["status"] == "running" and "resume_at_break_even" not in st
+    assert st["grid"] is not None
+    assert "Back to break-even, restarting" in notifier.subjects()
+
+
+def test_pause_command_cancels_break_even_resume(make_bot, cfg):
+    cfg.risk.sell_on_breakout_down = False
+    cfg.risk.resume_at_break_even = True
+    bot, kraken, notifier = make_bot()
+    bot.tick()
+    kraken.px = 137
+    bot.tick()
+    bot._run_command("pause", 137)
+    assert "resume_at_break_even" not in bot.state
+    kraken.px = round(bot.break_even_price() * 1.01, 2)
+    bot.tick()
+    assert bot.state["status"] == "paused"
