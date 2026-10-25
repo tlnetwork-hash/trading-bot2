@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 
 NETWORK_ALERT_AFTER = 20  # consecutive failed ticks (~10 min at 30s) before emailing
 HISTORY_INTERVAL = 300   # seconds between equity points saved for the dashboard chart
+SLIDE_CHECK_SECONDS = 300  # how often the slide guard re-reads hourly candles
 
 
 class BotError(Exception):
@@ -155,10 +156,40 @@ class GridBot:
     # ------------------------------------------------------------ risk guard
 
     def _risk_high(self):
+        if self._sliding():
+            return True
         if not self.cfg.risk.guard:
             return False
         from .risk import current_level
         return current_level() == "high"
+
+    def _sliding(self):
+        """Slide guard: True while the price is more than slide_guard_pct below its
+        level slide_guard_hours ago. Re-checked at most every SLIDE_CHECK_SECONDS."""
+        r = self.cfg.risk
+        if r.slide_guard_pct <= 0:
+            return False
+        now = time.monotonic()
+        cache = getattr(self, "_slide_cache", None)
+        if cache and now - cache[0] < SLIDE_CHECK_SECONDS:
+            return cache[1]
+        try:
+            candles = self.ex.ohlcv("1h", r.slide_guard_hours + 2)
+            ref = float(candles[-(r.slide_guard_hours + 1)][4])
+            price = float(self.state.get("last_price") or candles[-1][4])
+            self._slide_change = (price / ref - 1) * 100
+            sliding = price < ref * (1 - r.slide_guard_pct / 100)
+        except Exception as e:  # keep the last answer if candles can't be read
+            log.warning("slide guard: could not read candles (%s)", e)
+            sliding = cache[1] if cache else False
+        self._slide_cache = (now, sliding)
+        return sliding
+
+    def _guard_reason(self):
+        if self._sliding():
+            return (f"{self.ex.base} is down {abs(getattr(self, '_slide_change', 0)):.1f}% over the last "
+                    f"{self.cfg.risk.slide_guard_hours} hours (slide guard)")
+        return "Market risk is HIGH"
 
     def _apply_risk_guard(self):
         """While market risk is HIGH, cancel open buy orders and hold new ones;
@@ -188,7 +219,7 @@ class GridBot:
             self.save()
             log.warning("risk HIGH: holding %d buy orders", len(held))
             self.notifier.send("Risk guard ON",
-                               f"Market risk is HIGH, so new buy orders are on hold "
+                               f"{self._guard_reason()}, so new buy orders are on hold "
                                f"({len(held)} paused). Sell orders keep working.")
         elif not high and st.get("risk_on"):
             st["risk_on"] = False
@@ -202,7 +233,8 @@ class GridBot:
             self.save()
             log.info("risk back to normal: restored %d buy orders", placed)
             self.notifier.send("Risk guard OFF",
-                               f"Market risk dropped, buying is back on ({placed} buy orders restored).",
+                               f"Market risk is normal and the price isn't sliding, so buying is back on "
+                               f"({placed} buy orders restored).",
                                priority="low")
 
     def _build_grid(self, price):

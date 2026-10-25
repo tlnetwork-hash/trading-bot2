@@ -66,6 +66,12 @@ class RiskConfig:
     # Follow the market risk monitor (bot/risk.py): hold off on new buys while
     # its level is HIGH. Off unless a config turns it on.
     guard: bool = False
+    # Slide guard: also hold off on new buys while the price is more than
+    # slide_guard_pct below where it was slide_guard_hours ago (hourly candles).
+    # Works even when guard is off. 0 turns it off. Backtest 2023-2026:
+    # /root/backtest (slide_sim.py, restart_sim.py).
+    slide_guard_pct: float = 0.0
+    slide_guard_hours: int = 12
 
 
 @dataclass

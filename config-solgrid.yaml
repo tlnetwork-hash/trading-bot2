@@ -34,6 +34,12 @@ fees:
 
 risk:
   guard: true           # follow the market risk monitor (hold new buys while HIGH)
+  # EXPERIMENT (started Oct 24 2026, ~2 weeks, paper only): the backtest's best
+  # combo. Hold new buys while SOL is down more than 1% from 12 hours ago, and
+  # don't sell on a breakout below the grid (rebuild it lower instead, see
+  # sell_on_breakout_down). Undo: restore config-solgrid.yaml.pre-experiment-20261024.
+  slide_guard_pct: 1
+  slide_guard_hours: 12
   # Kill switch: if the bot's money falls this % below where it started,
   # cancel all orders, stop trading, and email you.
   max_drawdown_pct: 10
@@ -43,7 +49,7 @@ risk:
   breakout_action: recenter
   # Sell SOL right away if the price falls out of the bottom of the grid,
   # instead of holding it while it keeps dropping.
-  sell_on_breakout_down: true
+  sell_on_breakout_down: false   # EXPERIMENT: was true
   # Profit lock (a trailing stop on the bot's money). Once the bot is up
   # profit_lock_start_pct, it remembers its best gain. If it gives back so
   # much that only profit_lock_keep_pct of that gain is left, it sells all its

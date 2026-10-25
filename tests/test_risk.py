@@ -104,3 +104,43 @@ def test_score_flags_sharp_drop_and_event():
     assert any("FOMC" in r for r in reasons)
     assert any("24h" in r for r in reasons) and any("4h" in r for r in reasons)
     assert risk.level_for(pts, "normal") == "high"
+
+
+def test_slide_guard_holds_buys_while_price_slides(make_bot, cfg, monkeypatch):
+    from bot import trader
+    monkeypatch.setattr(trader, "SLIDE_CHECK_SECONDS", 0)
+    cfg.risk.slide_guard_pct = 1.0
+    cfg.risk.slide_guard_hours = 12
+    bot, kraken, notifier = make_bot()
+    bot.tick()
+    assert bot.state["grid"] is not None and buys(bot)
+
+    # Price 150 twelve hours ago, 147 now: down 2% -> buys held, sells kept.
+    flat = kraken.fetch_ohlcv
+    kraken.fetch_ohlcv = lambda s, tf, limit: (
+        [[i, 150, 150.5, 149.5, 150, 1] for i in range(limit - 1)] + [[limit, 147, 147.5, 146.5, 147, 1]])
+    kraken.px = 147.0
+    bot.tick()
+    assert buys(bot) == []
+    assert any(o["side"] == "sell" for o in bot.state["orders"].values())
+    assert "Risk guard ON" in notifier.subjects()
+    assert "slide guard" in dict(notifier.sent)["Risk guard ON"]
+
+    # Price steady at 147 for the last 12 hours: slide over -> buys come back.
+    kraken.fetch_ohlcv = lambda s, tf, limit: [[i, 147, 147.5, 146.5, 147, 1] for i in range(limit)]
+    bot.tick()
+    assert buys(bot)
+    assert "Risk guard OFF" in notifier.subjects()
+    kraken.fetch_ohlcv = flat
+
+
+def test_slide_guard_off_by_default(make_bot, monkeypatch):
+    from bot import trader
+    monkeypatch.setattr(trader, "SLIDE_CHECK_SECONDS", 0)
+    bot, kraken, _ = make_bot()
+    bot.tick()
+    kraken.fetch_ohlcv = lambda s, tf, limit: (
+        [[i, 150, 150.5, 149.5, 150, 1] for i in range(limit - 1)] + [[limit, 147, 147.5, 146.5, 147, 1]])
+    kraken.px = 147.0
+    bot.tick()
+    assert buys(bot)
