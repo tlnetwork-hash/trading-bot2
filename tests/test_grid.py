@@ -82,3 +82,26 @@ def test_load_config_rejects_typos(tmp_path):
 def test_shipped_config_is_valid():
     cfg = load_config("config.yaml", env={})
     assert cfg.mode == "paper" and cfg.symbol == "BTC/USD"
+
+
+def test_hold_grid_uses_held_coins_and_no_market_sale():
+    from bot.config import GridConfig
+    from bot.grid import plan_hold_grid
+    g = GridConfig(min_spacing_pct=1.0, max_levels=20, fee_reserve_pct=2)
+    rnd = lambda a: math.floor(a * 1000) / 1000
+    plan = plan_hold_grid(101.58, 101.58 * 0.955, 101.58 * 1.045, 0.46, 1.68, g, 0.001, 1.0, rnd)
+    assert plan is not None and plan.held
+    assert all(plan.levels[i] > 101.58 for i in plan.sell_indexes)
+    # sells never need more coins than the bot holds
+    assert len(plan.sell_indexes) * plan.amount <= 0.46 + 1e-9
+    # $1.68 cash can't fund a buy of ~$11, so no buys yet
+    assert plan.buy_indexes == []
+    assert plan.lower < 98 and plan.upper > 105
+
+
+def test_hold_grid_falls_back_when_mostly_cash():
+    from bot.config import GridConfig
+    from bot.grid import plan_hold_grid
+    g = GridConfig()
+    rnd = lambda a: math.floor(a * 1000) / 1000
+    assert plan_hold_grid(100, 95, 105, 0.01, 50, g, 0.001, 1.0, rnd) is None

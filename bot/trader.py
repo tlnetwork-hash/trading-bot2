@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 import ccxt
 
-from .grid import GridError, average_true_range, plan_grid, range_pct_from_atr
+from .grid import GridError, average_true_range, plan_grid, range_pct_from_atr, plan_hold_grid
 from .remote import HELP, RemoteCommands
 from .state import append_jsonl, new_state, save_state, utcnow
 
@@ -242,13 +242,26 @@ class GridBot:
         if st.get("risk_on"):
             return  # wait for risk to drop before building/rebuying into a grid
         try:
-            candles = self.ex.ohlcv(g.timeframe, g.atr_period + 5)
-            atr = average_true_range(candles, g.atr_period)
-            range_pct = range_pct_from_atr(price, atr, g)
-            plan = plan_grid(price, range_pct, self.equity(price), g,
-                             self.ex.min_amount, self.ex.min_cost, self.ex.round_amount)
+            if g.range_below_pct > 0 and g.range_above_pct > 0:
+                lower = price * (1 - g.range_below_pct / 100)
+                upper = price * (1 + g.range_above_pct / 100)
+                range_pct = 0
+            else:
+                candles = self.ex.ohlcv(g.timeframe, g.atr_period + 5)
+                atr = average_true_range(candles, g.atr_period)
+                range_pct = range_pct_from_atr(price, atr, g)
+                lower, upper = price * (1 - range_pct / 100), price * (1 + range_pct / 100)
             self._check_exchange_balance()
-            self._rebalance(plan, price)
+            plan = None
+            if g.keep_coins_on_build:
+                b = st["balances"]
+                plan = plan_hold_grid(price, lower, upper, b["base"], b["quote"], g,
+                                      self.ex.min_amount, self.ex.min_cost, self.ex.round_amount)
+            if plan is None:
+                plan = plan_grid(price, range_pct, self.equity(price), g,
+                                 self.ex.min_amount, self.ex.min_cost, self.ex.round_amount,
+                                 lower=lower, upper=upper)
+                self._rebalance(plan, price)
         except (GridError, BotError, ccxt.InsufficientFunds, ccxt.InvalidOrder) as e:
             self._pause(f"could not build grid: {e}")
             return
@@ -268,11 +281,16 @@ class GridBot:
             self._place(i, "buy", plan.amount)
         for i in plan.sell_indexes:
             self._place(i, "sell", plan.amount)
+            if plan.held and str(i) in st["orders"]:
+                st["orders"][str(i)]["held"] = True
         self.save()
 
         msg = (
             f"Price: ${price:,.2f}\n"
-            f"Range: ${plan.lower:,.2f} - ${plan.upper:,.2f} (+/-{range_pct:.1f}%)\n"
+            f"Range: ${plan.lower:,.2f} - ${plan.upper:,.2f} "
+            f"(-{(1 - plan.lower / price) * 100:.1f}% / +{(plan.upper / price - 1) * 100:.1f}%)\n"
+            + ("Kept the coins it holds (no market sale); buys below fill in as sells complete.\n"
+               if plan.held else "") +
             f"Levels: {len(plan.levels)}, spacing {plan.spacing_pct:.2f}%\n"
             f"Order size: {plan.amount} {self.ex.base} (~${plan.amount * price:,.2f})\n"
             f"Buy orders: {len(plan.buy_indexes)}, sell orders: {len(plan.sell_indexes)}\n"
@@ -391,7 +409,9 @@ class GridBot:
             stats["sells"] += 1
             profit = None
             counter_index, counter_side = index - 1, "buy"
-            if index > 0:
+            if order.get("held"):
+                profit_line = "Sold coins the bot already held (not a grid round trip).\n"
+            elif index > 0:
                 # Profit of this completed buy-low/sell-high step, after both fees.
                 buy_price = levels[index - 1]
                 profit = amount * (price - buy_price) - fee - amount * buy_price * self.cfg.fees.maker_pct / 100

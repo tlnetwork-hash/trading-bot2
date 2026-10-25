@@ -25,6 +25,12 @@ class GridConfig:
     min_spacing_pct: float = 1.0
     max_levels: int = 20
     fee_reserve_pct: float = 2.0
+    # Fixed grid width around the price (percent below / above). 0 = size it from volatility.
+    range_below_pct: float = 0.0
+    range_above_pct: float = 0.0
+    # When (re)building, sell the coins already held through the grid's sell
+    # orders instead of a market sale. Buys fill in as those sells complete.
+    keep_coins_on_build: bool = False
 
 
 @dataclass

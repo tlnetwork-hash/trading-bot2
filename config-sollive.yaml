@@ -31,6 +31,9 @@ grid:
   min_spacing_pct: 1.0
   max_levels: 20         # same as the paper bot; ~$2.40 per order, above the $1 minimum
   fee_reserve_pct: 2
+  range_below_pct: 4.5       # fixed grid: 4.5% below the price...
+  range_above_pct: 4.5       # ...and 4.5% above, so a small dip fills buys instead of pausing
+  keep_coins_on_build: true  # on resume/rebuild, sell held SOL through the grid, no market sale
 
 # Binance.US: 0% maker / 0.02% taker on all spot pairs (since April 2026).
 fees:

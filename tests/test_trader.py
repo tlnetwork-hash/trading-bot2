@@ -441,3 +441,48 @@ def test_pause_command_cancels_break_even_resume(make_bot, cfg):
     kraken.px = round(bot.break_even_price() * 1.01, 2)
     bot.tick()
     assert bot.state["status"] == "paused"
+
+
+def test_resume_keeping_coins_skips_market_sale(make_bot, cfg):
+    """Live-SOL setup: paused below the grid holding coins, then resumed with
+    keep_coins_on_build + a fixed range. No market sale; held coins go into
+    sells above; buys fill in as sells complete."""
+    cfg.capital_usd = 50
+    cfg.risk.sell_on_breakout_down = False
+    cfg.risk.resume_at_break_even = True
+    bot, kraken, _ = make_bot(price=105.0)
+    bot.tick()
+    kraken.px = 95.0
+    bot.tick()  # below the grid -> paused, holding
+    assert bot.state["status"] == "paused"
+    base_before = bot.state["balances"]["base"]
+    assert base_before * 95 > bot.state["balances"]["quote"]
+
+    cfg.grid.keep_coins_on_build = True
+    cfg.grid.range_below_pct = 4.5
+    cfg.grid.range_above_pct = 4.5
+    trades_before = cfg.trades_path.read_text() if cfg.trades_path.exists() else ""
+    cfg.command_path.write_text("resume")
+    bot.tick()
+    st = bot.state
+    assert st["status"] == "running"
+    trades_after = cfg.trades_path.read_text()
+    assert "rebalance" not in trades_after[len(trades_before):]   # no market sale
+    assert st["balances"]["base"] == pytest.approx(base_before)
+    sells = levels_with(bot, "sell")
+    assert sells and all(st["orders"][str(i)].get("held") for i in sells)
+    assert st["grid"]["lower"] == pytest.approx(95 * 0.955, rel=0.001)
+
+    # A held sell filling doesn't count as a round trip, and queues a buy below.
+    first = min(sells)
+    rt = st["stats"]["round_trips"]
+    kraken.px = st["grid"]["levels"][first] + 0.01
+    bot.tick()
+    assert st["stats"]["round_trips"] == rt
+    assert first - 1 in levels_with(bot, "buy")
+    # That buy then sells back up as a normal round trip.
+    kraken.px = st["grid"]["levels"][first - 1] - 0.01
+    bot.tick()
+    kraken.px = st["grid"]["levels"][first] + 0.01
+    bot.tick()
+    assert st["stats"]["round_trips"] == rt + 1
