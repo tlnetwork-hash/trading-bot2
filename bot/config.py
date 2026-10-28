@@ -57,6 +57,9 @@ class RiskConfig:
     # best gain. 0 turns it off.
     profit_lock_start_pct: float = 2.0
     profit_lock_keep_pct: float = 50.0
+    # The profit lock never measures from below this dollar amount, so it only
+    # arms once equity is profit_lock_start_pct above it (0 = no minimum).
+    profit_lock_min_base_usd: float = 0.0
     # Sell the bot's coins when the price falls out of the bottom of the grid.
     sell_on_breakout_down: bool = True
     # After either of those sales, start trading again by itself once the price

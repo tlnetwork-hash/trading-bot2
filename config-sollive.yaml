@@ -26,14 +26,14 @@ grid:
   timeframe: 1h
   atr_period: 14
   atr_multiplier: 6
-  min_range_pct: 5
+  min_range_pct: 4
   max_range_pct: 20
-  min_spacing_pct: 1.0
+  min_spacing_pct: 0.5
   max_levels: 20         # same as the paper bot; ~$2.40 per order, above the $1 minimum
   fee_reserve_pct: 2
-  range_below_pct: 4.5       # fixed grid: 4.5% below the price...
-  range_above_pct: 4.5       # ...and 4.5% above, so a small dip fills buys instead of pausing
-  keep_coins_on_build: true  # on resume/rebuild, sell held SOL through the grid, no market sale
+  range_below_pct: 2.0       # fixed grid: 4.5% below the price...
+  range_above_pct: 2.0       # ...and 4.5% above, so a small dip fills buys instead of pausing
+  keep_coins_on_build: false  # on resume/rebuild, sell held SOL through the grid, no market sale
 
 # Binance.US: 0% maker / 0.02% taker on all spot pairs (since April 2026).
 fees:
@@ -47,6 +47,7 @@ risk:
   sell_on_breakout_down: false
   profit_lock_start_pct: 2.0
   profit_lock_keep_pct: 50
+  profit_lock_min_base_usd: 50   # lock measures from at least $50: arms at $51, never sells below $50.50
   auto_restart: true
   restart_bounce_pct: 2.0
   restart_wait_minutes: 60
@@ -63,3 +64,6 @@ alerts:
 dashboard:
   chart_exchange: kraken
   links: []
+
+# LOSS LOG (see data-sollive/LOSS-LOG.txt):
+# 2026-10-26: restarted tighter grid, equity $47.83 vs $50 start, lost about $2.17

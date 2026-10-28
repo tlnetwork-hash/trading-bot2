@@ -786,7 +786,8 @@ class GridBot:
     def _resume(self, price):
         st = self.state
         # The profit lock starts over from today's value.
-        st["lock"] = {"base": self.equity(price), "peak": self.equity(price)}
+        eq = self.equity(price)
+        st["lock"] = {"base": max(eq, self.cfg.risk.profit_lock_min_base_usd), "peak": eq}
         st.pop("rebuy", None)
         st.pop("resume_at_break_even", None)
         self._cancel_all()
