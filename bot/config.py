@@ -72,6 +72,10 @@ class RiskConfig:
     # (and it kept its coins), start trading again by itself once what it holds
     # is worth its starting amount again (break-even).
     resume_at_break_even: bool = False
+    # If paused because the price broke ABOVE the grid, rebuild around the new
+    # price by itself once it has stayed above for this many minutes, or right
+    # away if it drops back to the old range first. 0 = off (wait for you).
+    recenter_above_after_minutes: int = 0
     # Follow the market risk monitor (bot/risk.py): hold off on new buys while
     # its level is HIGH. Off unless a config turns it on.
     guard: bool = False

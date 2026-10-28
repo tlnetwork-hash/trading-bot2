@@ -51,6 +51,7 @@ risk:
   auto_restart: true
   restart_bounce_pct: 2.0
   restart_wait_minutes: 60
+  recenter_above_after_minutes: 60   # broke above the grid: rebuild by itself after 1 hour above (or at once if it drops back)
   resume_at_break_even: true   # if paused below the grid, restart by itself once back to $50
 
 loop:

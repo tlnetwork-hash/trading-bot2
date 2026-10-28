@@ -111,6 +111,8 @@ class GridBot:
             self._check_rebuy(price)
         if st["status"] == "paused" and st.get("resume_at_break_even"):
             self._check_break_even_resume(price)
+        if st["status"] == "paused" and st.get("recenter_above"):
+            self._check_recenter_above(price)
 
         self._apply_risk_guard()
         if st["status"] == "running" and st["grid"] is None:
@@ -537,6 +539,17 @@ class GridBot:
             self._build_grid(price)
         else:
             self._pause(reason)
+            wait = self.cfg.risk.recenter_above_after_minutes
+            if direction == "above" and wait > 0:
+                st = self.state
+                st["recenter_above"] = {"since": utcnow().isoformat(), "top": grid["upper"]}
+                st["status_reason"] = reason + f" (rebuilds by itself if it holds above for {wait} min)"
+                self.save()
+                self.notifier.send(
+                    "Will re-center by itself",
+                    f"If {self.ex.base} stays above ${grid['upper']:,.2f} for {wait} minutes, the bot "
+                    f"builds a new grid around the price. If it drops back below that first, it "
+                    f"restarts right away. Send pause to cancel that.")
             if direction == "below" and self.cfg.risk.resume_at_break_even:
                 st = self.state
                 st["resume_at_break_even"] = True
@@ -553,6 +566,22 @@ class GridBot:
         if b["base"] <= 0:
             return 0.0
         return (st["start_equity"] - b["quote"]) / b["base"]
+
+    def _check_recenter_above(self, price):
+        st = self.state
+        r = st["recenter_above"]
+        if price <= r["top"]:
+            why = f"{self.ex.base} dropped back to ${price:,.2f}, inside the old grid."
+        elif utcnow() >= datetime.fromisoformat(r["since"]) + timedelta(
+                minutes=self.cfg.risk.recenter_above_after_minutes):
+            why = (f"{self.ex.base} held above ${r['top']:,.2f} for "
+                   f"{self.cfg.risk.recenter_above_after_minutes} minutes (now ${price:,.2f}).")
+        else:
+            return
+        log.info("re-centering after upside breakout at %.4f", price)
+        self._resume(price)
+        self.notifier.send("Re-centering grid", why + " Building a new grid around this price.",
+                           priority="high")
 
     def _check_break_even_resume(self, price):
         st = self.state
@@ -705,7 +734,8 @@ class GridBot:
         if command == "pause":
             if st["status"] == "running":
                 self._pause("paused by you")
-            elif st.pop("rebuy", None) or st.pop("resume_at_break_even", None):
+            elif (st.pop("rebuy", None) or st.pop("resume_at_break_even", None)
+                  or st.pop("recenter_above", None)):
                 st["status_reason"] = "paused by you (automatic restart cancelled)"
                 self.save()
                 self.notifier.send("Automatic restart cancelled",
@@ -749,6 +779,7 @@ class GridBot:
             st["status"] = "paused"
         st.pop("rebuy", None)  # you're in control now; no automatic restart
         st.pop("resume_at_break_even", None)
+        st.pop("recenter_above", None)
 
         if side == "buy":
             spend = b["quote"] if usd is None else min(usd, b["quote"])
@@ -790,6 +821,7 @@ class GridBot:
         st["lock"] = {"base": max(eq, self.cfg.risk.profit_lock_min_base_usd), "peak": eq}
         st.pop("rebuy", None)
         st.pop("resume_at_break_even", None)
+        st.pop("recenter_above", None)
         self._cancel_all()
         st["grid"] = None
         st["status"] = "running"
