@@ -114,6 +114,7 @@ class GridBot:
         if st["status"] == "paused" and st.get("recenter_above"):
             self._check_recenter_above(price)
 
+        self._apply_buy_floor()
         self._apply_risk_guard()
         if st["status"] == "running" and st["grid"] is None:
             self._build_grid(price)
@@ -192,6 +193,53 @@ class GridBot:
             return (f"{self.ex.base} is down {abs(getattr(self, '_slide_change', 0)):.1f}% over the last "
                     f"{self.cfg.risk.slide_guard_hours} hours (slide guard)")
         return "Market risk is HIGH"
+
+    def _apply_buy_floor(self):
+        """Pull open buy orders priced under no_buy_below_usd; put held ones
+        back once they're no longer under it (floor lowered or removed)."""
+        st = self.state
+        floor = self.cfg.risk.no_buy_below_usd
+        grid = st.get("grid")
+        held = st.setdefault("floor_held", [])
+        pulled = 0
+        if floor > 0:
+            grid_id = (grid or {}).get("created_at")
+            for key, order in list(st["orders"].items()):
+                if order["side"] != "buy" or order["price"] >= floor:
+                    continue
+                remaining = order["amount"]
+                if order["id"] is not None:
+                    self.ex.cancel_order(order["id"])
+                    info = self.ex.fetch_order(order["id"])
+                    if info.filled > 0:
+                        amount, fill_price, fee = self._apply_fill("buy", info)
+                        self._log_trade("before-cancel", "buy", amount, fill_price, fee)
+                        st["stats"]["buys"] += 1
+                        remaining = self.ex.round_amount(order["amount"] - info.filled)
+                    self.ex.forget_order(order["id"])
+                del st["orders"][key]
+                if remaining >= self.ex.min_amount:
+                    held.append({"index": int(key), "amount": remaining, "grid": grid_id})
+                pulled += 1
+            if pulled:
+                self.save()
+                log.warning("buy floor $%.2f: pulled %d buy orders", floor, pulled)
+                self.notifier.send("No buys below floor",
+                                   f"Pulled {pulled} buy order(s) under ${floor:,.2f}. The bot won't buy "
+                                   f"below that. Sell orders keep working.")
+        if held and grid:
+            keep, back = [], []
+            for h in held:
+                ok = h.get("grid") == grid.get("created_at") and 0 <= h["index"] < len(grid["levels"])
+                if not ok:
+                    continue  # belonged to an old grid
+                (back if floor <= 0 or grid["levels"][h["index"]] >= floor else keep).append(h)
+            st["floor_held"] = keep
+            for h in back:
+                self._place(h["index"], "buy", h["amount"])
+            if back:
+                self.save()
+                log.info("buy floor: restored %d buy orders", len(back))
 
     def _apply_risk_guard(self):
         """While market risk is HIGH, cancel open buy orders and hold new ones;
@@ -342,6 +390,13 @@ class GridBot:
                 {"index": index, "amount": amount, "grid": grid_id})
             log.info("risk HIGH: holding buy at level %d", index)
             return
+        floor = self.cfg.risk.no_buy_below_usd
+        if side == "buy" and floor > 0 and self.state["grid"]["levels"][index] < floor:
+            grid_id = (self.state.get("grid") or {}).get("created_at")
+            self.state.setdefault("floor_held", []).append(
+                {"index": index, "amount": amount, "grid": grid_id})
+            log.info("buy floor $%.2f: holding buy at level %d", floor, index)
+            return
         if key in orders:
             # Happens when price swings across several levels within one poll:
             # the order in this slot will fill next, then this one goes in.
@@ -455,6 +510,7 @@ class GridBot:
             self.save()
         self.state["deferred"] = []
         self.state["risk_held"] = []  # held buys belonged to the grid being torn down
+        self.state["floor_held"] = []
 
     # ---------------------------------------------------------------- safety
 
