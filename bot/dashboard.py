@@ -78,6 +78,40 @@ class CandleSource:
             return result
 
 
+TICKER_CACHE_SECONDS = 2
+
+
+class TickerSource:
+    """Latest price from the bot's own exchange (public API, no key), cached
+    briefly so open tabs polling every few seconds share one request."""
+
+    def __init__(self, symbol, exchange):
+        self.symbol, self.exchange = symbol, exchange
+        self._client = None
+        self._cache = None
+        self._lock = threading.Lock()
+
+    def get(self):
+        with self._lock:
+            if self._cache and time.time() - self._cache[0] < TICKER_CACHE_SECONDS:
+                return self._cache[1]
+            try:
+                if self._client is None:
+                    from .exchange import make_client
+                    self._client = make_client(self.exchange, timeout=8000)
+                t = self._client.fetch_ticker(self.symbol)
+                result = {"symbol": self.symbol, "exchange": self.exchange,
+                          "last": t.get("last"), "bid": t.get("bid"), "ask": t.get("ask"),
+                          "time": t.get("timestamp") or int(time.time() * 1000)}
+            except Exception as e:
+                log.warning("could not fetch ticker: %s", e)
+                if self._cache:
+                    return dict(self._cache[1], stale=True)
+                return {"error": "could not reach the exchange"}
+            self._cache = (time.time(), result)
+            return result
+
+
 def snapshot(cfg):
     state = load_state(cfg.state_path)
     if state is None:
@@ -101,6 +135,7 @@ def snapshot(cfg):
         "exchange": cfg.exchange,
         "exchange_name": cfg.exchange_name,
         "links": cfg.dashboard_links,
+        "loss_log": _read_loss_log(cfg),
         "chart_exchange": cfg.chart_source,
         "chart_exchange_name": EXCHANGES[cfg.chart_source],
         "service": cfg.service_name,
@@ -183,6 +218,8 @@ def make_handler(cfg, candles=None):
         for sym in cfg.trend.symbols:
             sources.setdefault(sym, CandleSource(sym, exchange=cfg.chart_source))
 
+    ticker = TickerSource(cfg.symbol, cfg.exchange)
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             path, _, query = self.path.partition("?")
@@ -195,6 +232,8 @@ def make_handler(cfg, candles=None):
             elif path == "/api/state":
                 body = json.dumps(snapshot(cfg)).encode()
                 self._send(200, "application/json", body)
+            elif path == "/api/ticker":
+                self._send(200, "application/json", json.dumps(ticker.get()).encode())
             elif path == "/api/candles":
                 params = dict(p.split("=", 1) for p in query.split("&") if "=" in p)
                 sym = urllib.parse.unquote(params.get("symbol", "")) or cfg.symbol
@@ -267,3 +306,11 @@ def serve(cfg, host="0.0.0.0", port=8080, notifier=None):
     server = ThreadingHTTPServer((host, port), make_handler(cfg))
     log.info("dashboard on http://%s:%d", host, port)
     server.serve_forever()
+
+
+def _read_loss_log(cfg):
+    """Contents of data/LOSS-LOG.txt if this bot has one, else None."""
+    try:
+        return (cfg.data_dir / "LOSS-LOG.txt").read_text()[-4000:]
+    except OSError:
+        return None

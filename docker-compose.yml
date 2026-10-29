@@ -160,6 +160,8 @@ services:
     volumes:
       - ./config-sollive.yaml:/app/config.yaml:ro
       - ./data-sollive:/app/data:ro
+      - ./bot/dashboard.py:/app/bot/dashboard.py:ro
+      - ./bot/dashboard.html:/app/bot/dashboard.html:ro
     ports:
       - "${DASHBOARD_BIND:-127.0.0.1}:8083:8080"
     logging: *logging

@@ -65,7 +65,7 @@ loop:
   poll_seconds: 30       # how often to check prices and orders
 
 alerts:
-  email_on_every_fill: true
+  email_on_every_fill: false      # Oct 28: Todd turned off per-trade alerts
   daily_summary_hour_utc: 13      # 13:00 UTC = 9am New York (summer time)
   error_email_cooldown_minutes: 30
 

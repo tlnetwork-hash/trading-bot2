@@ -18,6 +18,31 @@
 #  4. The API key must have withdrawals OFF and be locked to this server's IP.
 mode: live
 
+# Oct 29 2026 (Todd): LIVE bot switched to the Bollinger Bands mode (bot/bollinger.py),
+# same rules as the paper SOL bot. Real market orders on Binance.US.
+# Kept: $50 capital, kill switch at $45 (max_drawdown_pct 10) that sells to cash and stops.
+# Not used in this mode: the grid, profit lock, $97 buy floor / $100.55 ceiling, breakout pauses.
+# Undo: restore config-sollive.yaml.pre-bollinger and data-sollive/state-live.json.pre-bollinger,
+# then: docker compose build bot-sollive && docker compose up -d --no-deps bot-sollive dashboard-sollive
+strategy: bollinger
+
+bollinger:
+  timeframe: 1h
+  period: 20
+  std_dev: 2
+  min_profit_pct: 1.0
+  buy_size_pct: 15       # full buy = $7.50, half = $3.75 (Binance.US minimum is about $1)
+  max_coin_pct: 60       # never more than $30-ish in SOL; at least 40% stays cash
+  step_down_pct: 0.5
+  trend_timeframe: 4h
+  trend_period: 50
+  trend_slope_candles: 6
+  trend_flat_pct: 0.1
+  downtrend_size: 0.5
+  squeeze_percentile: 20
+  squeeze_lookback: 120
+  squeeze_size: 0.5
+
 exchange: binanceus
 symbol: SOL/USD
 capital_usd: 50
@@ -31,9 +56,11 @@ grid:
   min_spacing_pct: 0.5
   max_levels: 20         # same as the paper bot; ~$2.40 per order, above the $1 minimum
   fee_reserve_pct: 2
-  range_below_pct: 2.0       # fixed grid: 4.5% below the price...
-  range_above_pct: 2.0       # ...and 4.5% above, so a small dip fills buys instead of pausing
-  keep_coins_on_build: false  # on resume/rebuild, sell held SOL through the grid, no market sale
+  range_below_pct: 4.0       # Oct 28: reaches down to ~$97 so it can buy in the $97-$100 zone
+  range_above_pct: 3.0
+  keep_coins_on_build: true   # Oct 28: rebuild keeps held SOL for the sells, no market sale or lump buy
+  pair_steps: 2               # Oct 28: after a sell, next buy is 2 steps lower
+  sell_steps: 2               # Oct 29: each buy's sell is 2 steps (~1%) higher
 
 # Binance.US: 0% maker / 0.02% taker on all spot pairs (since April 2026).
 fees:
@@ -51,7 +78,8 @@ risk:
   auto_restart: true
   restart_bounce_pct: 2.0
   restart_wait_minutes: 60
-  no_buy_below_usd: 101.00          # Oct 28: no buys under $101 (sells unaffected); set 0 to turn off
+  no_buy_below_usd: 97.00           # Oct 28: buy zone $97-$100 only (sells unaffected); 0 = off
+  no_buy_above_usd: 100.55          # Oct 29: buys allowed up to $100.55; 0 = off
   recenter_above_after_minutes: 60   # broke above the grid: rebuild by itself after 1 hour above (or at once if it drops back)
   resume_at_break_even: true   # if paused below the grid, restart by itself once back to $50
 
@@ -59,7 +87,7 @@ loop:
   poll_seconds: 30
 
 alerts:
-  email_on_every_fill: true       # also a silent phone alert for every trade
+  email_on_every_fill: false      # Oct 28: Todd turned off per-trade alerts; daily summary only
   daily_summary_hour_utc: 13
   error_email_cooldown_minutes: 30
 

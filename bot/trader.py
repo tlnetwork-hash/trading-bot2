@@ -194,6 +194,14 @@ class GridBot:
                     f"{self.cfg.risk.slide_guard_hours} hours (slide guard)")
         return "Market risk is HIGH"
 
+    def _buy_blocked(self, price):
+        r = self.cfg.risk
+        if r.no_buy_below_usd > 0 and price < r.no_buy_below_usd:
+            return True
+        if r.no_buy_above_usd > 0 and price > r.no_buy_above_usd:
+            return True
+        return False
+
     def _apply_buy_floor(self):
         """Pull open buy orders priced under no_buy_below_usd; put held ones
         back once they're no longer under it (floor lowered or removed)."""
@@ -202,10 +210,10 @@ class GridBot:
         grid = st.get("grid")
         held = st.setdefault("floor_held", [])
         pulled = 0
-        if floor > 0:
+        if floor > 0 or self.cfg.risk.no_buy_above_usd > 0:
             grid_id = (grid or {}).get("created_at")
             for key, order in list(st["orders"].items()):
-                if order["side"] != "buy" or order["price"] >= floor:
+                if order["side"] != "buy" or not self._buy_blocked(order["price"]):
                     continue
                 remaining = order["amount"]
                 if order["id"] is not None:
@@ -233,7 +241,7 @@ class GridBot:
                 ok = h.get("grid") == grid.get("created_at") and 0 <= h["index"] < len(grid["levels"])
                 if not ok:
                     continue  # belonged to an old grid
-                (back if floor <= 0 or grid["levels"][h["index"]] >= floor else keep).append(h)
+                (back if not self._buy_blocked(grid["levels"][h["index"]]) else keep).append(h)
             st["floor_held"] = keep
             for h in back:
                 self._place(h["index"], "buy", h["amount"])
@@ -391,7 +399,7 @@ class GridBot:
             log.info("risk HIGH: holding buy at level %d", index)
             return
         floor = self.cfg.risk.no_buy_below_usd
-        if side == "buy" and floor > 0 and self.state["grid"]["levels"][index] < floor:
+        if side == "buy" and self._buy_blocked(self.state["grid"]["levels"][index]):
             grid_id = (self.state.get("grid") or {}).get("created_at")
             self.state.setdefault("floor_held", []).append(
                 {"index": index, "amount": amount, "grid": grid_id})
@@ -457,20 +465,22 @@ class GridBot:
         stats = st["stats"]
         st["report"]["fills"] += 1
 
+        gap = max(1, int(getattr(self.cfg.grid, "pair_steps", 1) or 1))
+        sell_gap = max(1, int(getattr(self.cfg.grid, "sell_steps", 0) or gap))
         if side == "buy":
             stats["buys"] += 1
-            counter_index, counter_side = index + 1, "sell"
+            counter_index, counter_side = index + sell_gap, "sell"
             profit_line = ""
             profit = None
         else:
             stats["sells"] += 1
             profit = None
-            counter_index, counter_side = index - 1, "buy"
+            counter_index, counter_side = index - gap, "buy"
             if order.get("held"):
                 profit_line = "Sold coins the bot already held (not a grid round trip).\n"
-            elif index > 0:
+            elif order.get("buy_price") or index - sell_gap >= 0:
                 # Profit of this completed buy-low/sell-high step, after both fees.
-                buy_price = levels[index - 1]
+                buy_price = order.get("buy_price") or levels[index - sell_gap]
                 profit = amount * (price - buy_price) - fee - amount * buy_price * self.cfg.fees.maker_pct / 100
                 stats["round_trips"] += 1
                 stats["grid_profit"] += profit
@@ -481,6 +491,9 @@ class GridBot:
         self._log_trade("grid", side, amount, price, fee, profit)
         if 0 <= counter_index < len(levels):
             self._place(counter_index, counter_side, amount)
+            placed = st["orders"].get(str(counter_index))
+            if counter_side == "sell" and placed and placed.get("side") == "sell":
+                placed["buy_price"] = price  # remember what this sell's coins cost
             next_line = f"Next: {counter_side} at ${levels[counter_index]:,.2f}\n"
         else:
             next_line = "Edge of grid reached, no counter order.\n"

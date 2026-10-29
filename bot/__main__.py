@@ -54,6 +54,8 @@ def make_notifier(cfg):
     if cfg.strategy == "trend":
         coins = "/".join(sym.split("/")[0] for sym in cfg.trend.symbols)
         prefix = f"{coins} trend {cfg.mode} ({cfg.exchange_name})"
+    elif cfg.strategy == "bollinger":
+        prefix = f"{cfg.symbol.split('/')[0]} bollinger {cfg.mode} ({cfg.exchange_name})"
     else:
         prefix = f"{cfg.symbol.split('/')[0]} grid {cfg.mode} ({cfg.exchange_name})"
     return Notifier(cfg.email, prefix, cfg.ntfy_url)
@@ -72,6 +74,8 @@ def run(cfg):
 
     if cfg.strategy == "trend":
         return run_trend(cfg, stop)
+    if cfg.strategy == "bollinger":
+        return run_bollinger(cfg, stop)
 
     state = load_state(cfg.state_path)
     if state is None:
@@ -92,6 +96,73 @@ def run(cfg):
         return
 
     GridBot(cfg, exchange, notifier, state).run_forever(stop)
+
+
+def take_over_live_grid(cfg, state):
+    """First live start in bollinger mode: cancel the grid's resting orders on the
+    exchange and carry over its money and coins (no sale). Each held coin lot keeps
+    the price the grid planned to sell it at, through the +min_profit_pct rule."""
+    from pathlib import Path
+    grid_path = cfg.data_dir / f"state-{cfg.mode}.json"
+    grid = load_state(grid_path)
+    ex = LiveExchange(cfg.symbol, cfg.api_key, cfg.api_secret, exchange=cfg.exchange)
+    for oid in ex.open_order_ids():
+        ex.cancel_order(oid)
+        log.info("cancelled grid order %s on %s", oid, cfg.exchange_name)
+    if grid is None:
+        return
+    for o in grid.get("orders", {}).values():
+        if o.get("id"):
+            ex.cancel_order(o["id"])
+    b = grid["balances"]
+    state["balances"] = {"quote": b["quote"], "base": b["base"]}
+    state["start_equity"] = grid["start_equity"]          # keeps the $45 kill switch
+    state["report"]["equity"] = grid["report"].get("equity", grid["start_equity"])
+    lots, left = [], b["base"]
+    for o in sorted(grid.get("orders", {}).values(), key=lambda o: o["price"]):
+        if o["side"] != "sell" or left <= 0:
+            continue
+        qty = min(o["amount"], left)
+        buy = o.get("buy_price") or o["price"] / (1 + cfg.bollinger.min_profit_pct / 100)
+        lots.append({"id": len(lots) + 1, "qty": qty, "price": buy, "cost": qty * buy,
+                     "t": grid.get("created_at"), "size_mult": None, "from_grid": True})
+        left -= qty
+    if lots and left > 1e-9:
+        lots[0]["qty"] += left                               # dust goes with the cheapest lot
+        lots[0]["cost"] = lots[0]["qty"] * lots[0]["price"]
+    state["lots"], state["seq"] = lots, len(lots)
+    grid["status"], grid["status_reason"] = "paused", "replaced by bollinger mode on " + \
+        state["created_at"][:10] + " (its orders were cancelled; coins handed over)"
+    grid["orders"], grid["grid"] = {}, None
+    save_state(grid_path, grid)
+    log.info("took over the live grid: %d coin lot(s): %s", len(lots),
+             ", ".join(f"{l['qty']:.4f} @ ${l['price']:.2f}" for l in lots))
+
+
+def run_bollinger(cfg, stop):
+    from .bollinger import BollingerBot, new_bb_state
+    b = cfg.bollinger
+    log.info("strategy: bollinger (%d, %g) on %s candles, trend filter %dx%s",
+             b.period, b.std_dev, b.timeframe, b.trend_period, b.trend_timeframe)
+    state = load_state(cfg.state_path)
+    if state is None:
+        state = new_bb_state(cfg)
+        if cfg.mode == "live":
+            take_over_live_grid(cfg, state)
+        save_state(cfg.state_path, state)
+        log.info("bollinger state started: $%.2f cash + %.6f coins",
+                 state["balances"]["quote"], state["balances"]["base"])
+    notifier = make_notifier(cfg)
+    while not stop.is_set():
+        try:
+            bot = BollingerBot(cfg, notifier, state)
+            break
+        except ccxt.NetworkError as e:
+            log.warning("cannot connect to %s yet (%s), retrying in 30s", cfg.exchange_name, e)
+            stop.wait(30)
+    else:
+        return
+    bot.run_forever(stop)
 
 
 def run_trend(cfg, stop):
@@ -155,6 +226,12 @@ def status(cfg):
         from .trend import TrendBot
         bot = TrendBot.__new__(TrendBot)
         bot.cfg, bot.state = cfg, state
+        print(bot.summary())
+        return
+    if cfg.strategy == "bollinger":
+        from .bollinger import BollingerBot
+        bot = BollingerBot.__new__(BollingerBot)
+        bot.cfg, bot.b, bot.state = cfg, cfg.bollinger, state
         print(bot.summary())
         return
     price = state.get("last_price") or 0
@@ -223,7 +300,10 @@ def main(argv=None):
         notifier.send("Risk monitor started", "Checking market risk every 10 minutes.", priority="low")
         risk.run_monitor(notifier, client, stop)
     elif args.command == "dashboard":
-        from .dashboard import serve
+        if cfg.strategy == "bollinger":
+            from .bbdash import serve
+        else:
+            from .dashboard import serve
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
         serve(cfg, notifier=make_notifier(cfg))
     else:

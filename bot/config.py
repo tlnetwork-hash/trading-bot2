@@ -31,6 +31,12 @@ class GridConfig:
     # When (re)building, sell the coins already held through the grid's sell
     # orders instead of a market sale. Buys fill in as those sells complete.
     keep_coins_on_build: bool = False
+    # How many levels apart each buy and its matching sell are. 1 = next level
+    # (normal grid); 2 = buy two steps below the last sell and sell two steps
+    # above the last buy (wider gap, more profit per trip, fewer trades).
+    pair_steps: int = 1
+    # Levels above a filled buy to put its sell. 0 = same as pair_steps.
+    sell_steps: int = 0
 
 
 @dataclass
@@ -38,6 +44,29 @@ class TrendConfig:
     # Coins to hold while each one's daily close is above its sma_days average.
     symbols: list = field(default_factory=lambda: ["BTC/USD", "ETH/USD", "SOL/USD"])
     sma_days: int = 50
+
+
+@dataclass
+class BollingerConfig:
+    # strategy: bollinger (paper only). Bands from closed candles of `timeframe`.
+    timeframe: str = "1h"
+    period: int = 20               # middle band = average of this many closes
+    std_dev: float = 2.0           # upper/lower = middle +/- this many standard deviations
+    min_profit_pct: float = 1.0    # each buy sells at the middle band or this % up, whichever is higher
+    buy_size_pct: float = 15.0     # full-size buy = this % of capital_usd
+    max_coin_pct: float = 60.0     # never hold more than this % of the bot's money in the coin
+    step_down_pct: float = 0.5     # buys in a row: each waits this much further below the last (0.5, 1, 1.5...)
+    # Trend filter: below the trend_period average on trend_timeframe AND it is sloping down -> half size
+    trend_timeframe: str = "4h"
+    trend_period: int = 50
+    trend_slope_candles: int = 6   # slope = change in the average over this many candles (6 x 4h = 1 day)
+    trend_flat_pct: float = 0.1    # a slope within +/- this % counts as flat
+    downtrend_size: float = 0.5
+    # Squeeze: band width in the lowest squeeze_percentile % of the last squeeze_lookback candles
+    squeeze_percentile: float = 20.0
+    squeeze_lookback: int = 120
+    squeeze_size: float = 0.5
+    indicator_exchange: str = ""   # where candles come from ("" = dashboard.chart_exchange)
 
 
 @dataclass
@@ -79,6 +108,8 @@ class RiskConfig:
     # Never place a buy below this price (0 = off). Buy levels under it are
     # held and go back on if you lower or remove it. Sells are not affected.
     no_buy_below_usd: float = 0.0
+    # Never place a buy above this price (0 = off). Held like the floor.
+    no_buy_above_usd: float = 0.0
     # Follow the market risk monitor (bot/risk.py): hold off on new buys while
     # its level is HIGH. Off unless a config turns it on.
     guard: bool = False
@@ -123,7 +154,7 @@ class EmailSecrets:
 @dataclass
 class Config:
     mode: str = "paper"
-    strategy: str = "grid"         # grid | trend
+    strategy: str = "grid"         # grid | trend | bollinger
     exchange: str = "kraken"
     symbol: str = "SOL/USD"
     capital_usd: float = 400.0
@@ -132,6 +163,7 @@ class Config:
     paper_fill_through_pct: float = 0.05
     grid: GridConfig = field(default_factory=GridConfig)
     trend: TrendConfig = field(default_factory=TrendConfig)
+    bollinger: BollingerConfig = field(default_factory=BollingerConfig)
     fees: FeeConfig = field(default_factory=FeeConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     alerts: AlertConfig = field(default_factory=AlertConfig)
@@ -180,6 +212,8 @@ class Config:
     @property
     def _file_tag(self):
         """Trend runs keep their own files, so switching back to grid finds its old state."""
+        if self.strategy == "bollinger":
+            return f"bb-{self.mode}"   # own files: the grid's state and logs stay as they were
         return f"trend-{self.mode}" if self.strategy == "trend" else self.mode
 
     @property
@@ -201,8 +235,14 @@ class Config:
     def validate(self):
         if self.mode not in ("paper", "live"):
             raise ConfigError("mode must be 'paper' or 'live'")
-        if self.strategy not in ("grid", "trend"):
-            raise ConfigError("strategy must be 'grid' or 'trend'")
+        if self.strategy not in ("grid", "trend", "bollinger"):
+            raise ConfigError("strategy must be 'grid', 'trend' or 'bollinger'")
+        if self.strategy == "bollinger":
+            b = self.bollinger
+            if b.period < 2 or b.std_dev <= 0 or b.trend_period < 2:
+                raise ConfigError("bollinger.period and trend_period must be 2+ and std_dev above 0")
+            if not 0 < b.max_coin_pct < 100 or not 0 < b.buy_size_pct <= b.max_coin_pct:
+                raise ConfigError("bollinger.max_coin_pct must be 0-100 and buy_size_pct at most that")
         if self.strategy == "trend":
             if self.mode != "paper":
                 raise ConfigError("the trend strategy is paper-only for now")
@@ -277,6 +317,7 @@ def load_config(path="config.yaml", env=None):
         mode=str(raw.get("mode", "paper")).lower(),
         strategy=str(raw.get("strategy", "grid")).lower(),
         trend=_section(TrendConfig, raw.get("trend")),
+        bollinger=_section(BollingerConfig, raw.get("bollinger")),
         exchange=exchange,
         symbol=raw.get("symbol", "SOL/USD"),
         capital_usd=float(raw.get("capital_usd", 400)),

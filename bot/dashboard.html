@@ -96,6 +96,11 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
 .legend svg { width: auto; display: inline; }
 .equity-card { margin-top: 0; }
 .muted { color: var(--text-3); }
+.xprice { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 14px; }
+.xprice .label { color: var(--text-2); font-size: 13px; font-weight: 600; }
+.xprice .big { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; transition: color .4s; }
+.xprice .big.up { color: #1a9e55; } .xprice .big.down { color: #d03b3b; }
+.xprice .sub { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -106,6 +111,7 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
     <span class="badge status" id="status"><span class="dot"></span><span>-</span></span>
     <span class="updated" id="updated">loading...</span>
   </header>
+  <section id="losslog" style="display:none;margin:12px 0;padding:10px 14px;border:1px solid #c66;border-radius:8px"><h2 style="margin:0 0 6px;font-size:1rem">Loss log</h2><pre id="losslogtext" style="margin:0;white-space:pre-wrap;font-size:.9rem"></pre></section>
   <div class="botnav"><span class="label">Bots</span><nav class="switch" id="switch" aria-label="Switch between the bots' dashboards"></nav></div>
   <div class="sites"><span class="label">Exchange websites</span>
     <a href="https://www.binance.us/" target="_blank" rel="noopener noreferrer">Binance.US ↗</a>
@@ -119,6 +125,13 @@ dt { color: var(--text-2); } dd { margin: 0; text-align: right; }
     <div class="card tile"><div class="label">Fees paid</div><div class="value" id="fees">-</div><div class="sub" id="fees-sub"></div></div>
     <div class="card tile"><div class="label">Kill switch</div><div class="value" id="kill">-</div><div class="sub" id="kill-sub"></div></div>
     <div class="card tile" id="lock-tile"><div class="label" id="lock-label">Profit lock</div><div class="value" id="lock">-</div><div class="sub" id="lock-sub"></div></div>
+  </section>
+
+  <section class="card xprice" id="xprice" aria-live="polite">
+    <span class="label" id="xp-label">Binance.US price</span>
+    <span class="big" id="xp-last">-</span>
+    <span class="sub" id="xp-ba"></span>
+    <span class="sub" id="xp-age" style="margin-left:auto">loading...</span>
   </section>
 
   <section class="card price-card">
@@ -205,6 +218,7 @@ function render() {
                                    : d.exchange_name + " " + d.symbol;
   document.title = d.exchange_name + (d.trend ? " trend - " : " grid - ") + usd(d.equity);
   renderSwitch(d);
+  { const ll=document.getElementById("losslog"); if (d.loss_log) { document.getElementById("losslogtext").textContent=d.loss_log; ll.style.display=""; } else ll.style.display="none"; }
   $("live").title = "Live prices stream straight from " + d.chart_exchange_name + " to your browser";
   $("mode").textContent = d.mode.toUpperCase();
   const [label, color] = STATUS[d.status] || [d.status, "--text-3"];
@@ -809,6 +823,34 @@ refresh();
 setInterval(refresh, 15000);
 // Phones pause pages in the background; refresh right away when you come back.
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { refresh(); loadCandles(); } });
+</script>
+<script>
+(() => {
+  const el = (id) => document.getElementById(id);
+  let last = null, at = 0;
+  const fmt = (v) => v == null ? "-" : "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  async function poll() {
+    try {
+      const r = await fetch("api/ticker", { cache: "no-store", redirect: "manual" });
+      const t = await r.json();
+      if (t.error) throw new Error(t.error);
+      el("xp-label").textContent = "Binance.US " + (t.symbol || "") + " price";
+      const big = el("xp-last");
+      big.textContent = fmt(t.last);
+      big.classList.remove("up", "down");
+      if (last != null && t.last != null && t.last !== last) big.classList.add(t.last > last ? "up" : "down");
+      last = t.last;
+      el("xp-ba").textContent = (t.bid != null && t.ask != null) ? "bid " + fmt(t.bid) + " · ask " + fmt(t.ask) : "";
+      at = Date.now();
+      el("xp-age").textContent = t.stale ? "exchange slow, showing last price" : "updated just now";
+    } catch (e) {
+      el("xp-age").textContent = "can't reach Binance.US right now";
+    }
+  }
+  setInterval(() => { if (at && Date.now() - at > 4000) el("xp-age").textContent = "updated " + Math.round((Date.now() - at) / 1000) + "s ago"; }, 1000);
+  poll();
+  setInterval(poll, 3000);
+})();
 </script>
 </body>
 </html>

@@ -7,6 +7,32 @@
 # live  = real orders on your Binance.US account
 mode: paper
 
+# Oct 29 2026: switched to the Bollinger Bands mode (bot/bollinger.py). It keeps
+# its own files (state-bb-paper.json, trades-bb-paper.jsonl, bb-signals-paper.jsonl),
+# so the grid's state and trade log are left exactly as they were.
+# Undo: set strategy: grid (or restore config-solgrid.yaml.pre-bollinger) and
+#   docker compose up -d --no-deps bot-solgrid dashboard-solgrid
+# Only the kill switch (risk.max_drawdown_pct) stops this mode; the grid's
+# profit lock, slide guard, risk guard and breakout settings below are not used.
+strategy: bollinger
+
+bollinger:
+  timeframe: 1h          # bands from 1-hour candles, recalculated every new candle
+  period: 20             # middle band = 20-candle average
+  std_dev: 2             # upper/lower = 2 standard deviations away
+  min_profit_pct: 1.0    # each buy sells at the middle band or +1%, whichever is higher
+  buy_size_pct: 15       # full-size buy = 15% of capital ($60); half = $30
+  max_coin_pct: 60       # never more than 60% of the money in SOL (40% stays cash)
+  step_down_pct: 0.5     # buys in a row wait 0.5%, then 1%, then 1.5%... below the last buy
+  trend_timeframe: 4h    # trend filter: 50-period average on 4-hour candles
+  trend_period: 50
+  trend_slope_candles: 6 # slope measured over the last day (6 x 4h)
+  trend_flat_pct: 0.1    # within +/-0.1% a day counts as flat -> back to full size
+  downtrend_size: 0.5    # below the average and sloping down -> half size
+  squeeze_percentile: 20 # bands narrower than 80% of the last 120 hours = squeeze
+  squeeze_lookback: 120
+  squeeze_size: 0.5      # squeeze -> half size (a quarter if also in a downtrend)
+
 # Which exchange: kraken or binanceus.
 exchange: binanceus
 
@@ -71,7 +97,7 @@ loop:
   poll_seconds: 30       # how often to check prices and orders
 
 alerts:
-  email_on_every_fill: true
+  email_on_every_fill: false      # Oct 28: Todd turned off per-trade alerts
   daily_summary_hour_utc: 13      # 13:00 UTC = 9am New York (summer time)
   error_email_cooldown_minutes: 30
 
