@@ -65,24 +65,36 @@ function bbBuyAt() {
   if (data.bb.next_limit != null) v = Math.min(v, data.bb.next_limit);
   return v;
 }
-function bbBuyLine(lo, hi, y, xmin, xmax) {
-  const v = bbBuyAt();
-  if (v == null || v < lo || v > hi) return "";
-  const yy = y(v).toFixed(1);
-  return `<line x1="${xmin}" x2="${xmax}" y1="${yy}" y2="${yy}" stroke="#ff3fa4" stroke-width="2.2" stroke-dasharray="8 4"/>` +
-         `<text x="${xmin + 6}" y="${(y(v) - 5).toFixed(1)}" fill="#ff3fa4" font-size="13" font-weight="700">Next buy ~ ${usd(v)}</text>`;
+// Oct 30 (Todd): all three buy zones drawn all the time, each in its own colour,
+// with the candle-close countdown on the right. "(next)" marks the one price would hit first.
+function bbZones() {
+  if (!data || !data.bb || !data.bb.now) return [];
+  const n = data.bb.now, st = data.bb.settings || {}, z = [];
+  if (st.top_buys) z.push({ v: n.upper, c: "#e09a2b", name: "Top buy", how: `dip to it, close above, sells +${st.top_profit_pct != null ? st.top_profit_pct : 1}%` });
+  if (st.pullback_buys) z.push({ v: n.middle, c: "#8a63d2", name: "Middle buy", how: "dip to it, close above" });
+  z.push({ v: n.lower, c: "#ff3fa4", name: "Bounce buy", how: "dip under it, then close back above" });
+  return z;
 }
-// Oct 30: purple middle-band label with its own countdown (same 30m candle close as the pink line)
-function bbMidLabel(lo, hi, y, xmax) {
-  if (!data || !data.bb || !data.bb.now) return "";
-  const v = data.bb.now.middle;
-  if (v < lo || v > hi) return "";
-  let s = `<text x="${xmax - 6}" y="${(y(v) - 5).toFixed(1)}" text-anchor="end" fill="#8a63d2" font-size="13" font-weight="700">Middle ${usd(v)} &middot; <tspan class="bbcdm">${bbLeft()}</tspan></text>`;
-  const u = data.bb.now.upper;   // Oct 30: orange upper-band label + timer when top buys are on
-  if (data.bb.settings && data.bb.settings.top_buys && u >= lo && u <= hi)
-    s += `<text x="${xmax - 6}" y="${(y(u) - 5).toFixed(1)}" text-anchor="end" fill="#e09a2b" font-size="13" font-weight="700">Upper ${usd(u)} &middot; <tspan class="bbcdm">${bbLeft()}</tspan></text>`;
+function bbBuyLine(lo, hi, y, xmin, xmax) {
+  const nx = bbBuyAt();
+  let s = "";
+  for (const z of bbZones()) {
+    if (z.v < lo || z.v > hi) continue;
+    const yy = y(z.v).toFixed(1), ty = (y(z.v) - 5).toFixed(1);
+    const next = nx != null && Math.abs(nx - z.v) < 1e-9 ? " (next)" : "";
+    s += `<line x1="${xmin}" x2="${xmax}" y1="${yy}" y2="${yy}" stroke="${z.c}" stroke-width="2.2" stroke-dasharray="8 4"/>` +
+         `<text x="${xmin + 6}" y="${ty}" fill="${z.c}" font-size="13" font-weight="700">${z.name} ~ ${usd(z.v)}${next}</text>` +
+         `<text x="${xmax - 6}" y="${ty}" text-anchor="end" fill="${z.c}" font-size="13" font-weight="700"><tspan class="bbcdm">${bbLeft()}</tspan></text>`;
+  }
+  const lim = data && data.bb ? data.bb.next_limit : null;   // buys in a row: step-down cap
+  if (lim != null && lim >= lo && lim <= hi) {
+    const yy = y(lim).toFixed(1);
+    s += `<line x1="${xmin}" x2="${xmax}" y1="${yy}" y2="${yy}" stroke="#d04545" stroke-width="1.6" stroke-dasharray="2 3"/>` +
+         `<text x="${xmin + 6}" y="${(y(lim) + 14).toFixed(1)}" fill="#d04545" font-size="12" font-weight="700">Next buy in a row needs ${usd(lim)} or lower</text>`;
+  }
   return s;
 }
+function bbMidLabel() { return ""; }
 function bbLeft() {
   const P = 30 * 60e3, left = P - (Date.now() % P);
   const m = Math.floor(left / 60e3), s = Math.floor(left / 1e3) % 60;
@@ -101,11 +113,11 @@ function bbInfo() {
   const coin = data.equity ? data.balances.base * data.price / data.equity * 100 : 0;
   const ba = bbBuyAt();
   el.innerHTML =
-    `<span class="sw" style="border-color:#ff3fa4;border-top-style:dashed"></span>Next buy <b style="color:#ff3fa4">${ba ? usd(ba) : "-"}</b> <span style="font-size:12px">(needs a dip under it, then a close back above)</span> &middot; Candle closes in <b id="bbcd" style="color:#ff3fa4">--:--</b><br>` +
+    bbZones().map((z) => `<span class="sw" style="border-color:${z.c};border-top-style:dashed"></span>${z.name} <b style="color:${z.c}">${usd(z.v)}</b>${z.v === ba ? " <b>(next)</b>" : ""} <span style="font-size:12px">(${z.how})</span>`).join("<br>") +
+    (data.bb.next_limit != null ? `<br><span style="color:#d04545">Next buy in a row needs ${usd(data.bb.next_limit)} or lower</span>` : "") +
+    ` <br>Candle closes in <b id="bbcd" style="color:#ff3fa4">--:--</b><br>` +
     `<span class="sw" style="border-color:#e09a2b"></span>Upper <b>${usd(n.upper)}</b>` +
-    (s.top_buys ? ` <span style="font-size:12px;color:#e09a2b">(top buy: dip to it, close above, sells +${s.top_profit_pct != null ? s.top_profit_pct : 1}% &middot; closes in <b class="bbcdm" style="color:#e09a2b">${bbLeft()}</b>)</span>` : "") +
     `<span class="sw" style="border-color:#8a63d2;border-top-style:dashed"></span>Middle <b>${usd(n.middle)}</b>` +
-    (s.pullback_buys ? ` <span style="font-size:12px;color:#8a63d2">(pullback buy: dip to it, close above &middot; closes in <b class="bbcdm" style="color:#8a63d2">${bbLeft()}</b>)</span>` : "") +
     `<span class="sw" style="border-color:#e09a2b"></span>Lower <b>${usd(n.lower)}</b>` +
     `<span class="sw" style="border-color:#1f9e8f;border-top-style:dotted"></span>${s.trend_period || 50}-avg ${s.trend_timeframe || "4h"} <b>${t.sma ? usd(t.sma) : "-"}</b><br>` +
     `Band width ${n.width_pct.toFixed(2)}%${n.squeeze ? ' &middot; <b>SQUEEZE</b> (smaller buys)' : ""} &middot; ` +
