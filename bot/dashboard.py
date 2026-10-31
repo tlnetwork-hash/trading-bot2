@@ -31,6 +31,7 @@ CANDLE_RANGES = {
     "24h": ("15m", 96),
     "7d": ("1h", 168),
     "30d": ("4h", 180),
+    "1w": ("30m", 336),   # Oct 30 (Todd): 30-minute candles (same as the live bot), 7 days to scroll back through
 }
 CANDLE_CACHE_SECONDS = 10
 
