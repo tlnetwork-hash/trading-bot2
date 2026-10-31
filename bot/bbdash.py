@@ -59,9 +59,14 @@ function bbOverlay(vis, vn, xt, y, lo, hi, t0, step, xmin, xmax) {
 function bbBuyAt() {
   if (!data || !data.bb || !data.bb.now) return null;
   let v = data.bb.now.lower;
+  // Oct 30: next buy = the highest buy line under the current price
+  const under = bbZones().map((z) => z.v).filter((x) => x < data.price);
+  if (under.length) v = Math.max(...under);
+  else {
   // Oct 30: pullback buys on -> while price is above the middle band, the next buy is a dip to the middle
   if (data.bb.settings && data.bb.settings.pullback_buys && data.price > data.bb.now.middle) v = data.bb.now.middle;
   if (data.bb.settings && data.bb.settings.top_buys && data.price > data.bb.now.upper) v = data.bb.now.upper;
+  }
   if (data.bb.next_limit != null) v = Math.min(v, data.bb.next_limit);
   return v;
 }
@@ -71,7 +76,10 @@ function bbZones() {
   if (!data || !data.bb || !data.bb.now) return [];
   const n = data.bb.now, st = data.bb.settings || {}, z = [];
   if (st.top_buys) z.push({ v: n.upper, c: "#e09a2b", name: "Top buy", how: `dip to it, close above, sells +${st.top_profit_pct != null ? st.top_profit_pct : 1}%` });
+  const hp = st.half_profit_pct != null ? st.half_profit_pct : 0.25;
+  if (st.half_buys) z.push({ v: (n.upper + n.middle) / 2, c: "#2fae5f", name: "High-half buy", how: `dip to it, close above, sells +${hp}%` });
   if (st.pullback_buys) z.push({ v: n.middle, c: "#8a63d2", name: "Middle buy", how: "dip to it, close above" });
+  if (st.half_buys) z.push({ v: (n.middle + n.lower) / 2, c: "#3a8fd9", name: "Low-half buy", how: `dip to it, close above, sells +${hp}%` });
   z.push({ v: n.lower, c: "#ff3fa4", name: "Bounce buy", how: "dip under it, then close back above" });
   return z;
 }

@@ -45,6 +45,8 @@ bollinger:
   top_buys: true        # Oct 30 (Todd): also buy dips to the upper band while above it (undo: config-sollive.yaml.pre-topbuy)
   top_profit_pct: 0.5   # Oct 30 (Todd): top buys sell 0.5% up (was 1%)
   pullback_buys: true   # Oct 30 (Todd): also buy dips to the middle band while above it (undo: config-sollive.yaml.pre-pullback)
+  half_buys: true       # Oct 30 (Todd): 2 more buy lines halfway lower<->middle and middle<->upper (undo: config-sollive.yaml.pre-halflines)
+  half_profit_pct: 0.25 # Oct 30 (Todd): those half-line buys sell 0.25% up
 
 exchange: binanceus
 symbol: SOL/USD

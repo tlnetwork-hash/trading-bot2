@@ -149,6 +149,10 @@ class BollingerBot:
                     self._check_pullback(price)
                 if self.b.top_buys and self.state["stats"]["buys"] == bought_before:
                     self._check_pullback(price, band=0, kind="upper-band pullback")
+                if self.b.half_buys and self.state["stats"]["buys"] == bought_before:
+                    self._check_pullback(price, kind="high-half pullback", level=lambda x: (x[0] + x[1]) / 2)
+                if self.b.half_buys and self.state["stats"]["buys"] == bought_before:
+                    self._check_pullback(price, kind="low-half pullback", level=lambda x: (x[1] + x[2]) / 2)
             self._check_sells(price)
             self._check_kill_switch(price)
         self._refresh_display(price)
@@ -236,7 +240,9 @@ class BollingerBot:
                             "max_coin_pct": self.b.max_coin_pct,
                             "pullback_buys": self.b.pullback_buys,
                             "top_buys": self.b.top_buys,
-                            "top_profit_pct": self.b.top_profit_pct}}
+                            "top_profit_pct": self.b.top_profit_pct,
+                            "half_buys": self.b.half_buys,
+                            "half_profit_pct": self.b.half_profit_pct}}
         path = self.cfg.data_dir / "bb-series.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -279,7 +285,7 @@ class BollingerBot:
                  float(touch[3]), b_touch[2], float(conf[4]), b_conf[2])
         self._try_buy(price, touch_low=float(touch[3]), confirm_close=float(conf[4]))
 
-    def _check_pullback(self, price, band=1, kind="middle-band pullback"):
+    def _check_pullback(self, price, band=1, kind="middle-band pullback", level=None):
         """Oct 30: uptrend pullback. The candle before closed above the band (1 = middle,
         0 = upper), the candle that just closed dipped to/below it and still closed above it."""
         c1, bands = self.c1, self.bands
@@ -287,8 +293,9 @@ class BollingerBot:
         b_prev, b_conf = bands[-2], bands[-1]
         if not (b_prev and b_conf):
             return False
-        mid = b_conf[band]
-        ok = float(prev[4]) > b_prev[band] and float(conf[3]) <= mid < float(conf[4])
+        level = level or (lambda x: x[band])
+        mid = level(b_conf)
+        ok = float(prev[4]) > level(b_prev) and float(conf[3]) <= mid < float(conf[4])
         if not ok:
             return False
         age = utcnow().timestamp() * 1000 - (conf[0] + TF_MS[self.b.timeframe])
@@ -329,6 +336,9 @@ class BollingerBot:
         st["streak"] = {"count": st["streak"]["count"] + 1, "last_buy": lot["price"]}
         if kind == "upper-band pullback":
             lot["top"] = True       # sells at +min_profit_pct, not at the upper band
+            self.save()
+        if kind in ("high-half pullback", "low-half pullback"):
+            lot["half"] = True      # Oct 30: sells at +half_profit_pct
             self.save()
 
     def _min_usd(self):
@@ -389,18 +399,21 @@ class BollingerBot:
             return
         if price >= bands["upper"]:
             for lot in list(st["lots"]):
-                if not lot.get("top"):
+                if not lot.get("top") and not lot.get("half"):
                     self._sell(lot, price, f"price reached the upper band ${bands['upper']:,.2f}")
         for lot in list(st["lots"]):
             target = self._target(lot)
             if price >= target:
                 which = (f"top buy +{self.b.top_profit_pct:g}%" if lot.get("top") else
+                         f"half-line buy +{self.b.half_profit_pct:g}%" if lot.get("half") else
                          "middle band" if target == bands["middle"] else f"+{self.b.min_profit_pct:g}% minimum")
                 self._sell(lot, price, f"reached its target ${target:,.2f} ({which})")
 
     def _target(self, lot):
         if lot.get("top"):
             return lot["price"] * (1 + self.b.top_profit_pct / 100)
+        if lot.get("half"):
+            return lot["price"] * (1 + self.b.half_profit_pct / 100)
         return max(self.state["bands"]["middle"], lot["price"] * (1 + self.b.min_profit_pct / 100))
 
     def _sell(self, lot, price, why):

@@ -74,6 +74,10 @@ class BollingerConfig:
     # These buys skip the 'sell everything at the upper band' rule and sell at +min_profit_pct.
     top_buys: bool = False
     top_profit_pct: float = 1.0    # Oct 30: top buys sell this % up (Todd: 0.5 on the live bot)
+    # Oct 30 2026 (Todd): two more buy lines, halfway lower<->middle and middle<->upper.
+    # Same dip-and-close-above rule; these sell at +half_profit_pct.
+    half_buys: bool = False
+    half_profit_pct: float = 0.25
 
 
 @dataclass
