@@ -67,6 +67,9 @@ class BollingerConfig:
     squeeze_lookback: int = 120
     squeeze_size: float = 0.5
     indicator_exchange: str = ""   # where candles come from ("" = dashboard.chart_exchange)
+    # Oct 30 2026 (Todd): also buy pullbacks to the middle band while price is above it,
+    # so it gets buys on the way up. Same size/caps/step-down/sell rules as bounce buys.
+    pullback_buys: bool = False
 
 
 @dataclass

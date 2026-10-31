@@ -33,7 +33,7 @@ from .state import append_jsonl, save_state, utcnow
 
 log = logging.getLogger(__name__)
 
-TF_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
+TF_MS = {"1m": 60_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 HISTORY_INTERVAL = 300
 NETWORK_ALERT_AFTER = 20
 CANDLE_REFRESH_SECONDS = 60
@@ -143,7 +143,10 @@ class BollingerBot:
         new_candle = self._refresh_indicators(price)
         if st["status"] == "running":
             if new_candle:
+                bought_before = self.state["stats"]["buys"]
                 self._check_bounce(price)
+                if self.b.pullback_buys and self.state["stats"]["buys"] == bought_before:
+                    self._check_pullback(price)
             self._check_sells(price)
             self._check_kill_switch(price)
         self._refresh_display(price)
@@ -228,7 +231,8 @@ class BollingerBot:
                "now": self.state["bands"], "trend": self.state["trend"],
                "settings": {"period": self.b.period, "std_dev": self.b.std_dev,
                             "trend_period": self.b.trend_period, "trend_timeframe": self.b.trend_timeframe,
-                            "max_coin_pct": self.b.max_coin_pct}}
+                            "max_coin_pct": self.b.max_coin_pct,
+                            "pullback_buys": self.b.pullback_buys}}
         path = self.cfg.data_dir / "bb-series.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -271,6 +275,27 @@ class BollingerBot:
                  float(touch[3]), b_touch[2], float(conf[4]), b_conf[2])
         self._try_buy(price, touch_low=float(touch[3]), confirm_close=float(conf[4]))
 
+    def _check_pullback(self, price):
+        """Oct 30: uptrend pullback. The candle before closed above the middle band, the
+        candle that just closed dipped to/below the middle band and still closed above it."""
+        c1, bands = self.c1, self.bands
+        prev, conf = c1[-2], c1[-1]
+        b_prev, b_conf = bands[-2], bands[-1]
+        if not (b_prev and b_conf):
+            return False
+        mid = b_conf[1]
+        ok = float(prev[4]) > b_prev[1] and float(conf[3]) <= mid < float(conf[4])
+        if not ok:
+            return False
+        age = utcnow().timestamp() * 1000 - (conf[0] + TF_MS[self.b.timeframe])
+        if age > SIGNAL_MAX_AGE_MS:
+            log.info("pullback signal is %.0f min old (bot was down?), skipping", age / 60000)
+            return False
+        log.info("middle-band pullback: low %.2f <= middle %.2f, close %.2f above it",
+                 float(conf[3]), mid, float(conf[4]))
+        self._try_buy(price, kind="middle-band pullback", touch_low=float(conf[3]), confirm_close=float(conf[4]))
+        return True
+
     def _skip(self, price, why, **extra):
         self.state["stats"]["skipped_signals"] += 1
         log.info("bounce signal skipped: %s", why)
@@ -278,8 +303,9 @@ class BollingerBot:
                      {"t": utcnow().isoformat(timespec="seconds"), "action": "skipped", "why": why,
                       "price": price, **self._context(price), **extra})
 
-    def _try_buy(self, price, **signal):
+    def _try_buy(self, price, kind="lower-band bounce", **signal):
         st, b = self.state, self.b
+        signal["signal"] = kind
         limit = self._next_buy_limit()
         if limit is not None and price > limit:
             return self._skip(price, f"buy #{st['streak']['count'] + 1} in a row needs ${limit:,.2f} or lower "
@@ -294,7 +320,7 @@ class BollingerBot:
             return self._skip(price, f"at the {b.max_coin_pct:.0f}% coin cap (room ${max(room, 0):,.2f}); "
                                      "waiting for a sell to free up room", **signal)
         size = "full size" if mult == 1 else f"{mult:g}x size ({' + '.join(why)})"
-        lot = self._buy(usd, price, f"lower-band bounce, {size}", mult, **signal)
+        lot = self._buy(usd, price, f"{kind}, {size}", mult, **signal)
         if lot is None:
             return self._skip(price, "order too small or not enough cash on the exchange", **signal)
         st["streak"] = {"count": st["streak"]["count"] + 1, "last_buy": lot["price"]}

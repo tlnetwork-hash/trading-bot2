@@ -20,6 +20,9 @@ HEAD_CSS = """
 #bbinfo b { color: var(--text); font-weight: 600; }
 #bbinfo .sw { display: inline-block; width: 16px; height: 0; vertical-align: middle; margin: 0 4px 0 10px; border-top: 2px solid; }
 #bbinfo .down { color: var(--sell); font-weight: 600; }
+/* Oct 29: wider page + taller chart for the live bot */
+main { max-width: 1700px !important; }
+#pchart { height: 440px; }
 """
 
 OVERLAY_JS = r"""
@@ -50,14 +53,39 @@ function bbOverlay(vis, vn, xt, y, lo, hi, t0, step, xmin, xmax) {
   return line(B.map((r) => [r[0], r[1]]), "#e09a2b", "", 1.4) +
          line(B.map((r) => [r[0], r[2]]), "#8a63d2", "5 3", 1.4) +
          line(B.map((r) => [r[0], r[3]]), "#e09a2b", "", 1.4) +
-         line(data.bb.sma || [], "#1f9e8f", "2 3", 1.8);
+         line(data.bb.sma || [], "#1f9e8f", "2 3", 1.8) + bbBuyLine(lo, hi, y, xmin, xmax);
 }
+// Oct 29: pink "next buy" line = lower band, or the step-down limit if that is lower
+function bbBuyAt() {
+  if (!data || !data.bb || !data.bb.now) return null;
+  let v = data.bb.now.lower;
+  // Oct 30: pullback buys on -> while price is above the middle band, the next buy is a dip to the middle
+  if (data.bb.settings && data.bb.settings.pullback_buys && data.price > data.bb.now.middle) v = data.bb.now.middle;
+  if (data.bb.next_limit != null) v = Math.min(v, data.bb.next_limit);
+  return v;
+}
+function bbBuyLine(lo, hi, y, xmin, xmax) {
+  const v = bbBuyAt();
+  if (v == null || v < lo || v > hi) return "";
+  const yy = y(v).toFixed(1);
+  return `<line x1="${xmin}" x2="${xmax}" y1="${yy}" y2="${yy}" stroke="#ff3fa4" stroke-width="2.2" stroke-dasharray="8 4"/>` +
+         `<text x="${xmin + 6}" y="${(y(v) - 5).toFixed(1)}" fill="#ff3fa4" font-size="13" font-weight="700">Next buy ~ ${usd(v)}</text>`;
+}
+// Oct 29: countdown to the next 30m candle close
+setInterval(() => {
+  const el = document.getElementById("bbcd"); if (!el) return;
+  const P = 30 * 60e3, left = P - (Date.now() % P);
+  const m = Math.floor(left / 60e3), s = Math.floor(left / 1e3) % 60;
+  el.textContent = m + ":" + String(s).padStart(2, "0");
+}, 1000);
 function bbInfo() {
   const el = document.getElementById("bbinfo");
   if (!el || !data || !data.bb || !data.bb.now) return;
   const n = data.bb.now, t = data.bb.trend || {}, s = data.bb.settings || {};
   const coin = data.equity ? data.balances.base * data.price / data.equity * 100 : 0;
+  const ba = bbBuyAt();
   el.innerHTML =
+    `<span class="sw" style="border-color:#ff3fa4;border-top-style:dashed"></span>Next buy <b style="color:#ff3fa4">${ba ? usd(ba) : "-"}</b> <span style="font-size:12px">(needs a dip under it, then a close back above)</span> &middot; Candle closes in <b id="bbcd" style="color:#ff3fa4">--:--</b><br>` +
     `<span class="sw" style="border-color:#e09a2b"></span>Upper <b>${usd(n.upper)}</b>` +
     `<span class="sw" style="border-color:#8a63d2;border-top-style:dashed"></span>Middle <b>${usd(n.middle)}</b>` +
     `<span class="sw" style="border-color:#e09a2b"></span>Lower <b>${usd(n.lower)}</b>` +
@@ -75,8 +103,10 @@ def patch_page(page):
     edits = [
         ("</style>", HEAD_CSS + "</style>"),
         ('<svg id="pchart" height="320" role="img" aria-label="Price candles with the bot\'s orders and trades"></svg>',
-         '<svg id="pchart" height="320" role="img" aria-label="Price candles with the bot\'s orders and trades"></svg>'
+         '<svg id="pchart" height="440" role="img" aria-label="Price candles with the bot\'s orders and trades"></svg>'
          '\n      <div id="bbinfo"></div>'),
+        ("  const W = svg.clientWidth || 600, H = 320, L = 6, R = 62, T = 10, B = 26;",
+         "  const W = svg.clientWidth || 600, H = 440, L = 6, R = 62, T = 10, B = 26;"),
         ("function renderPriceChart() {", OVERLAY_JS + "\nfunction renderPriceChart() {"),
         # keep the whole band visible when zoomed out
         ("  const pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;",
@@ -104,6 +134,13 @@ def _snapshot(cfg, _orig=base.snapshot):
         out["bb"] = json.loads((cfg.data_dir / "bb-series.json").read_text())
     except (OSError, ValueError):
         out["bb"] = None
+    try:  # step-down limit for buys in a row (same maths as bollinger._next_buy_limit)
+        st = json.loads((cfg.data_dir / "state-bb-live.json").read_text()) if (cfg.data_dir / "state-bb-live.json").exists() else {}
+        s = (st.get("bollinger") or st).get("streak") or {}
+        if out["bb"] is not None and s.get("count") and s.get("last_buy"):
+            out["bb"]["next_limit"] = s["last_buy"] * (1 - cfg.bollinger.step_down_pct * s["count"] / 100)
+    except Exception as e:
+        log.warning("next-buy limit: %s", e)
     return out
 
 

@@ -27,7 +27,7 @@ mode: live
 strategy: bollinger
 
 bollinger:
-  timeframe: 1h
+  timeframe: 30m      # Oct 29: switched from 1h at Todd's request (undo: config-sollive.yaml.pre-30m)
   period: 20
   std_dev: 2
   min_profit_pct: 1.0
@@ -42,6 +42,7 @@ bollinger:
   squeeze_percentile: 20
   squeeze_lookback: 120
   squeeze_size: 0.5
+  pullback_buys: true   # Oct 30 (Todd): also buy dips to the middle band while above it (undo: config-sollive.yaml.pre-pullback)
 
 exchange: binanceus
 symbol: SOL/USD
