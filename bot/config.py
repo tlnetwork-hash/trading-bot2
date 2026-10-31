@@ -70,6 +70,9 @@ class BollingerConfig:
     # Oct 30 2026 (Todd): also buy pullbacks to the middle band while price is above it,
     # so it gets buys on the way up. Same size/caps/step-down/sell rules as bounce buys.
     pullback_buys: bool = False
+    # Oct 30 2026 (Todd): same idea at the upper band - above it, dips to it, closes back above.
+    # These buys skip the 'sell everything at the upper band' rule and sell at +min_profit_pct.
+    top_buys: bool = False
 
 
 @dataclass

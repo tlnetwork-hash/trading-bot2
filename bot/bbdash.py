@@ -61,6 +61,7 @@ function bbBuyAt() {
   let v = data.bb.now.lower;
   // Oct 30: pullback buys on -> while price is above the middle band, the next buy is a dip to the middle
   if (data.bb.settings && data.bb.settings.pullback_buys && data.price > data.bb.now.middle) v = data.bb.now.middle;
+  if (data.bb.settings && data.bb.settings.top_buys && data.price > data.bb.now.upper) v = data.bb.now.upper;
   if (data.bb.next_limit != null) v = Math.min(v, data.bb.next_limit);
   return v;
 }
@@ -76,7 +77,11 @@ function bbMidLabel(lo, hi, y, xmax) {
   if (!data || !data.bb || !data.bb.now) return "";
   const v = data.bb.now.middle;
   if (v < lo || v > hi) return "";
-  return `<text x="${xmax - 6}" y="${(y(v) - 5).toFixed(1)}" text-anchor="end" fill="#8a63d2" font-size="13" font-weight="700">Middle ${usd(v)} &middot; <tspan class="bbcdm">${bbLeft()}</tspan></text>`;
+  let s = `<text x="${xmax - 6}" y="${(y(v) - 5).toFixed(1)}" text-anchor="end" fill="#8a63d2" font-size="13" font-weight="700">Middle ${usd(v)} &middot; <tspan class="bbcdm">${bbLeft()}</tspan></text>`;
+  const u = data.bb.now.upper;   // Oct 30: orange upper-band label + timer when top buys are on
+  if (data.bb.settings && data.bb.settings.top_buys && u >= lo && u <= hi)
+    s += `<text x="${xmax - 6}" y="${(y(u) - 5).toFixed(1)}" text-anchor="end" fill="#e09a2b" font-size="13" font-weight="700">Upper ${usd(u)} &middot; <tspan class="bbcdm">${bbLeft()}</tspan></text>`;
+  return s;
 }
 function bbLeft() {
   const P = 30 * 60e3, left = P - (Date.now() % P);
@@ -98,6 +103,7 @@ function bbInfo() {
   el.innerHTML =
     `<span class="sw" style="border-color:#ff3fa4;border-top-style:dashed"></span>Next buy <b style="color:#ff3fa4">${ba ? usd(ba) : "-"}</b> <span style="font-size:12px">(needs a dip under it, then a close back above)</span> &middot; Candle closes in <b id="bbcd" style="color:#ff3fa4">--:--</b><br>` +
     `<span class="sw" style="border-color:#e09a2b"></span>Upper <b>${usd(n.upper)}</b>` +
+    (s.top_buys ? ` <span style="font-size:12px;color:#e09a2b">(top buy: dip to it, close above, sells +1% &middot; closes in <b class="bbcdm" style="color:#e09a2b">${bbLeft()}</b>)</span>` : "") +
     `<span class="sw" style="border-color:#8a63d2;border-top-style:dashed"></span>Middle <b>${usd(n.middle)}</b>` +
     (s.pullback_buys ? ` <span style="font-size:12px;color:#8a63d2">(pullback buy: dip to it, close above &middot; closes in <b class="bbcdm" style="color:#8a63d2">${bbLeft()}</b>)</span>` : "") +
     `<span class="sw" style="border-color:#e09a2b"></span>Lower <b>${usd(n.lower)}</b>` +

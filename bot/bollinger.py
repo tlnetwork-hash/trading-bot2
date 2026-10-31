@@ -147,6 +147,8 @@ class BollingerBot:
                 self._check_bounce(price)
                 if self.b.pullback_buys and self.state["stats"]["buys"] == bought_before:
                     self._check_pullback(price)
+                if self.b.top_buys and self.state["stats"]["buys"] == bought_before:
+                    self._check_pullback(price, band=0, kind="upper-band pullback")
             self._check_sells(price)
             self._check_kill_switch(price)
         self._refresh_display(price)
@@ -232,7 +234,8 @@ class BollingerBot:
                "settings": {"period": self.b.period, "std_dev": self.b.std_dev,
                             "trend_period": self.b.trend_period, "trend_timeframe": self.b.trend_timeframe,
                             "max_coin_pct": self.b.max_coin_pct,
-                            "pullback_buys": self.b.pullback_buys}}
+                            "pullback_buys": self.b.pullback_buys,
+                            "top_buys": self.b.top_buys}}
         path = self.cfg.data_dir / "bb-series.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -275,25 +278,24 @@ class BollingerBot:
                  float(touch[3]), b_touch[2], float(conf[4]), b_conf[2])
         self._try_buy(price, touch_low=float(touch[3]), confirm_close=float(conf[4]))
 
-    def _check_pullback(self, price):
-        """Oct 30: uptrend pullback. The candle before closed above the middle band, the
-        candle that just closed dipped to/below the middle band and still closed above it."""
+    def _check_pullback(self, price, band=1, kind="middle-band pullback"):
+        """Oct 30: uptrend pullback. The candle before closed above the band (1 = middle,
+        0 = upper), the candle that just closed dipped to/below it and still closed above it."""
         c1, bands = self.c1, self.bands
         prev, conf = c1[-2], c1[-1]
         b_prev, b_conf = bands[-2], bands[-1]
         if not (b_prev and b_conf):
             return False
-        mid = b_conf[1]
-        ok = float(prev[4]) > b_prev[1] and float(conf[3]) <= mid < float(conf[4])
+        mid = b_conf[band]
+        ok = float(prev[4]) > b_prev[band] and float(conf[3]) <= mid < float(conf[4])
         if not ok:
             return False
         age = utcnow().timestamp() * 1000 - (conf[0] + TF_MS[self.b.timeframe])
         if age > SIGNAL_MAX_AGE_MS:
             log.info("pullback signal is %.0f min old (bot was down?), skipping", age / 60000)
             return False
-        log.info("middle-band pullback: low %.2f <= middle %.2f, close %.2f above it",
-                 float(conf[3]), mid, float(conf[4]))
-        self._try_buy(price, kind="middle-band pullback", touch_low=float(conf[3]), confirm_close=float(conf[4]))
+        log.info("%s: low %.2f <= band %.2f, close %.2f above it", kind, float(conf[3]), mid, float(conf[4]))
+        self._try_buy(price, kind=kind, touch_low=float(conf[3]), confirm_close=float(conf[4]))
         return True
 
     def _skip(self, price, why, **extra):
@@ -324,6 +326,9 @@ class BollingerBot:
         if lot is None:
             return self._skip(price, "order too small or not enough cash on the exchange", **signal)
         st["streak"] = {"count": st["streak"]["count"] + 1, "last_buy": lot["price"]}
+        if kind == "upper-band pullback":
+            lot["top"] = True       # sells at +min_profit_pct, not at the upper band
+            self.save()
 
     def _min_usd(self):
         return max(self.market.min_cost or 0, 1.0)
@@ -383,8 +388,8 @@ class BollingerBot:
             return
         if price >= bands["upper"]:
             for lot in list(st["lots"]):
-                self._sell(lot, price, f"price reached the upper band ${bands['upper']:,.2f}")
-            return
+                if not lot.get("top"):
+                    self._sell(lot, price, f"price reached the upper band ${bands['upper']:,.2f}")
         for lot in list(st["lots"]):
             target = self._target(lot)
             if price >= target:
@@ -392,6 +397,8 @@ class BollingerBot:
                 self._sell(lot, price, f"reached its target ${target:,.2f} ({which})")
 
     def _target(self, lot):
+        if lot.get("top"):
+            return lot["price"] * (1 + self.b.min_profit_pct / 100)
         return max(self.state["bands"]["middle"], lot["price"] * (1 + self.b.min_profit_pct / 100))
 
     def _sell(self, lot, price, why):
