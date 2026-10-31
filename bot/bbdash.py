@@ -53,7 +53,7 @@ function bbOverlay(vis, vn, xt, y, lo, hi, t0, step, xmin, xmax) {
   return line(B.map((r) => [r[0], r[1]]), "#e09a2b", "", 1.4) +
          line(B.map((r) => [r[0], r[2]]), "#8a63d2", "5 3", 1.4) +
          line(B.map((r) => [r[0], r[3]]), "#e09a2b", "", 1.4) +
-         line(data.bb.sma || [], "#1f9e8f", "2 3", 1.8) + bbBuyLine(lo, hi, y, xmin, xmax);
+         line(data.bb.sma || [], "#1f9e8f", "2 3", 1.8) + bbBuyLine(lo, hi, y, xmin, xmax) + bbMidLabel(lo, hi, y, xmax);
 }
 // Oct 29: pink "next buy" line = lower band, or the step-down limit if that is lower
 function bbBuyAt() {
@@ -71,12 +71,23 @@ function bbBuyLine(lo, hi, y, xmin, xmax) {
   return `<line x1="${xmin}" x2="${xmax}" y1="${yy}" y2="${yy}" stroke="#ff3fa4" stroke-width="2.2" stroke-dasharray="8 4"/>` +
          `<text x="${xmin + 6}" y="${(y(v) - 5).toFixed(1)}" fill="#ff3fa4" font-size="13" font-weight="700">Next buy ~ ${usd(v)}</text>`;
 }
-// Oct 29: countdown to the next 30m candle close
-setInterval(() => {
-  const el = document.getElementById("bbcd"); if (!el) return;
+// Oct 30: purple middle-band label with its own countdown (same 30m candle close as the pink line)
+function bbMidLabel(lo, hi, y, xmax) {
+  if (!data || !data.bb || !data.bb.now) return "";
+  const v = data.bb.now.middle;
+  if (v < lo || v > hi) return "";
+  return `<text x="${xmax - 6}" y="${(y(v) - 5).toFixed(1)}" text-anchor="end" fill="#8a63d2" font-size="13" font-weight="700">Middle ${usd(v)} &middot; <tspan class="bbcdm">${bbLeft()}</tspan></text>`;
+}
+function bbLeft() {
   const P = 30 * 60e3, left = P - (Date.now() % P);
   const m = Math.floor(left / 60e3), s = Math.floor(left / 1e3) % 60;
-  el.textContent = m + ":" + String(s).padStart(2, "0");
+  return m + ":" + String(s).padStart(2, "0");
+}
+// Oct 29: countdown to the next 30m candle close (Oct 30: also the purple middle-band timers)
+setInterval(() => {
+  const t = bbLeft();
+  const el = document.getElementById("bbcd"); if (el) el.textContent = t;
+  document.querySelectorAll(".bbcdm").forEach((e) => { e.textContent = t; });
 }, 1000);
 function bbInfo() {
   const el = document.getElementById("bbinfo");
@@ -88,6 +99,7 @@ function bbInfo() {
     `<span class="sw" style="border-color:#ff3fa4;border-top-style:dashed"></span>Next buy <b style="color:#ff3fa4">${ba ? usd(ba) : "-"}</b> <span style="font-size:12px">(needs a dip under it, then a close back above)</span> &middot; Candle closes in <b id="bbcd" style="color:#ff3fa4">--:--</b><br>` +
     `<span class="sw" style="border-color:#e09a2b"></span>Upper <b>${usd(n.upper)}</b>` +
     `<span class="sw" style="border-color:#8a63d2;border-top-style:dashed"></span>Middle <b>${usd(n.middle)}</b>` +
+    (s.pullback_buys ? ` <span style="font-size:12px;color:#8a63d2">(pullback buy: dip to it, close above &middot; closes in <b class="bbcdm" style="color:#8a63d2">${bbLeft()}</b>)</span>` : "") +
     `<span class="sw" style="border-color:#e09a2b"></span>Lower <b>${usd(n.lower)}</b>` +
     `<span class="sw" style="border-color:#1f9e8f;border-top-style:dotted"></span>${s.trend_period || 50}-avg ${s.trend_timeframe || "4h"} <b>${t.sma ? usd(t.sma) : "-"}</b><br>` +
     `Band width ${n.width_pct.toFixed(2)}%${n.squeeze ? ' &middot; <b>SQUEEZE</b> (smaller buys)' : ""} &middot; ` +
