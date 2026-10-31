@@ -73,6 +73,7 @@ class BollingerConfig:
     # Oct 30 2026 (Todd): same idea at the upper band - above it, dips to it, closes back above.
     # These buys skip the 'sell everything at the upper band' rule and sell at +min_profit_pct.
     top_buys: bool = False
+    top_profit_pct: float = 1.0    # Oct 30: top buys sell this % up (Todd: 0.5 on the live bot)
 
 
 @dataclass

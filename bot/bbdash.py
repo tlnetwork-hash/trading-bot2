@@ -103,7 +103,7 @@ function bbInfo() {
   el.innerHTML =
     `<span class="sw" style="border-color:#ff3fa4;border-top-style:dashed"></span>Next buy <b style="color:#ff3fa4">${ba ? usd(ba) : "-"}</b> <span style="font-size:12px">(needs a dip under it, then a close back above)</span> &middot; Candle closes in <b id="bbcd" style="color:#ff3fa4">--:--</b><br>` +
     `<span class="sw" style="border-color:#e09a2b"></span>Upper <b>${usd(n.upper)}</b>` +
-    (s.top_buys ? ` <span style="font-size:12px;color:#e09a2b">(top buy: dip to it, close above, sells +1% &middot; closes in <b class="bbcdm" style="color:#e09a2b">${bbLeft()}</b>)</span>` : "") +
+    (s.top_buys ? ` <span style="font-size:12px;color:#e09a2b">(top buy: dip to it, close above, sells +${s.top_profit_pct != null ? s.top_profit_pct : 1}% &middot; closes in <b class="bbcdm" style="color:#e09a2b">${bbLeft()}</b>)</span>` : "") +
     `<span class="sw" style="border-color:#8a63d2;border-top-style:dashed"></span>Middle <b>${usd(n.middle)}</b>` +
     (s.pullback_buys ? ` <span style="font-size:12px;color:#8a63d2">(pullback buy: dip to it, close above &middot; closes in <b class="bbcdm" style="color:#8a63d2">${bbLeft()}</b>)</span>` : "") +
     `<span class="sw" style="border-color:#e09a2b"></span>Lower <b>${usd(n.lower)}</b>` +

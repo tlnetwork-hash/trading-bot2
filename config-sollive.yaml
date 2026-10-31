@@ -42,7 +42,8 @@ bollinger:
   squeeze_percentile: 20
   squeeze_lookback: 120
   squeeze_size: 0.5
-  top_buys: true        # Oct 30 (Todd): also buy dips to the upper band while above it; sells at +1% (undo: config-sollive.yaml.pre-topbuy)
+  top_buys: true        # Oct 30 (Todd): also buy dips to the upper band while above it (undo: config-sollive.yaml.pre-topbuy)
+  top_profit_pct: 0.5   # Oct 30 (Todd): top buys sell 0.5% up (was 1%)
   pullback_buys: true   # Oct 30 (Todd): also buy dips to the middle band while above it (undo: config-sollive.yaml.pre-pullback)
 
 exchange: binanceus

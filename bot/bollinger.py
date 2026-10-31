@@ -235,7 +235,8 @@ class BollingerBot:
                             "trend_period": self.b.trend_period, "trend_timeframe": self.b.trend_timeframe,
                             "max_coin_pct": self.b.max_coin_pct,
                             "pullback_buys": self.b.pullback_buys,
-                            "top_buys": self.b.top_buys}}
+                            "top_buys": self.b.top_buys,
+                            "top_profit_pct": self.b.top_profit_pct}}
         path = self.cfg.data_dir / "bb-series.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -393,12 +394,13 @@ class BollingerBot:
         for lot in list(st["lots"]):
             target = self._target(lot)
             if price >= target:
-                which = "middle band" if target == bands["middle"] else f"+{self.b.min_profit_pct:g}% minimum"
+                which = (f"top buy +{self.b.top_profit_pct:g}%" if lot.get("top") else
+                         "middle band" if target == bands["middle"] else f"+{self.b.min_profit_pct:g}% minimum")
                 self._sell(lot, price, f"reached its target ${target:,.2f} ({which})")
 
     def _target(self, lot):
         if lot.get("top"):
-            return lot["price"] * (1 + self.b.min_profit_pct / 100)
+            return lot["price"] * (1 + self.b.top_profit_pct / 100)
         return max(self.state["bands"]["middle"], lot["price"] * (1 + self.b.min_profit_pct / 100))
 
     def _sell(self, lot, price, why):
