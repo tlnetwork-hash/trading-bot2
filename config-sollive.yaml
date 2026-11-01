@@ -27,30 +27,35 @@ mode: live
 strategy: bollinger
 
 bollinger:
-  timeframe: 30m      # Oct 29: switched from 1h at Todd's request (undo: config-sollive.yaml.pre-30m)
+  timeframe: 5m       # Oct 31 (Todd): was 15m (was 30m before that). Undo: config-sollive.yaml.pre-5m
   period: 20
   std_dev: 2
-  min_profit_pct: 1.0
-  buy_size_pct: 15       # full buy = $7.50, half = $3.75 (Binance.US minimum is about $1)
-  max_coin_pct: 60       # never more than $30-ish in SOL; at least 40% stays cash
-  step_down_pct: 0.5
+  min_profit_pct: 0.5   # Oct 31 (Todd): was 1.0 - faster sells. Undo: config-sollive.yaml.pre-15m
+  buy_size_pct: 15       # full buy = ~$14.67, half = ~$7.33 (Oct 31: doubled with the added $50) (Binance.US minimum is about $1)
+  max_coin_pct: 60       # never more than ~$59 in SOL; at least 40% stays cash
+  step_down_pct: 0.15   # Oct 31 (Todd): was 0.5 - next buy only 0.15% lower (0.15, 0.3, 0.45...). Undo: config-sollive.yaml.pre-step015
   trend_timeframe: 4h
   trend_period: 50
   trend_slope_candles: 6
   trend_flat_pct: 0.1
-  downtrend_size: 0.5
+  downtrend_size: 1.0   # Oct 31 (Todd): full size (was 0.5). Undo: config-sollive.yaml.pre-harddrop
   squeeze_percentile: 20
   squeeze_lookback: 120
-  squeeze_size: 0.5
+  squeeze_size: 1.0     # Oct 31 (Todd): full size (was 0.5)
+  drop_half_pct: 1.5    # Oct 31 (Todd): down 1.5% from the last 1h high -> half size
+  drop_half_candles: 12   # 12 x 5m = 1h
+  drop_stop_pct: 3.0    # Oct 31 (Todd): down 3% from the last 4h high -> no buys
+  drop_stop_candles: 48   # 48 x 5m = 4h
   top_buys: true        # Oct 30 (Todd): also buy dips to the upper band while above it (undo: config-sollive.yaml.pre-topbuy)
   top_profit_pct: 0.5   # Oct 30 (Todd): top buys sell 0.5% up (was 1%)
   pullback_buys: true   # Oct 30 (Todd): also buy dips to the middle band while above it (undo: config-sollive.yaml.pre-pullback)
   half_buys: true       # Oct 30 (Todd): 2 more buy lines halfway lower<->middle and middle<->upper (undo: config-sollive.yaml.pre-halflines)
   half_profit_pct: 0.25 # Oct 30 (Todd): those half-line buys sell 0.25% up
+  upper_sell_no_loss: true  # Nov 1 (Todd): upper-band sell only if above that buy's cost + fees, else wait for its target. Undo: *.pre-noloss
 
 exchange: binanceus
 symbol: SOL/USD
-capital_usd: 50
+capital_usd: 97.78   # Oct 31 2026 (Todd): added $50 (was 50); kill switch now $88.00 (10% below $97.78). Undo: *.pre-add50 files
 
 grid:
   timeframe: 1h

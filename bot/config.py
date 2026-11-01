@@ -66,6 +66,11 @@ class BollingerConfig:
     squeeze_percentile: float = 20.0
     squeeze_lookback: int = 120
     squeeze_size: float = 0.5
+    # Oct 31 2026 (Todd): hard-drop guard. 0 = off.
+    drop_half_pct: float = 0.0      # fell this % from the recent high -> half size
+    drop_half_candles: int = 4      # 'recent' = this many candles (4 x 15m = 1h)
+    drop_stop_pct: float = 0.0      # fell this % from the recent high -> no buys at all
+    drop_stop_candles: int = 16     # 16 x 15m = 4h
     indicator_exchange: str = ""   # where candles come from ("" = dashboard.chart_exchange)
     # Oct 30 2026 (Todd): also buy pullbacks to the middle band while price is above it,
     # so it gets buys on the way up. Same size/caps/step-down/sell rules as bounce buys.
@@ -78,6 +83,9 @@ class BollingerConfig:
     # Same dip-and-close-above rule; these sell at +half_profit_pct.
     half_buys: bool = False
     half_profit_pct: float = 0.25
+    # Nov 1 2026 (Todd): only take the 'sell at the upper band' exit when it beats that buy's
+    # cost plus fees; otherwise the buy waits for its normal target.
+    upper_sell_no_loss: bool = False
 
 
 @dataclass

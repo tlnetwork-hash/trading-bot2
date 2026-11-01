@@ -235,7 +235,7 @@ class BollingerBot:
         sma = [[r[0] + tf4, round(v, 3)] for r, v in zip(self.c4, self.sma4) if v is not None][-200:]
         out = {"updated": utcnow().isoformat(timespec="seconds"), "bands": bands, "sma": sma,
                "now": self.state["bands"], "trend": self.state["trend"],
-               "settings": {"period": self.b.period, "std_dev": self.b.std_dev,
+               "settings": {"timeframe": self.b.timeframe, "period": self.b.period, "std_dev": self.b.std_dev,
                             "trend_period": self.b.trend_period, "trend_timeframe": self.b.trend_timeframe,
                             "max_coin_pct": self.b.max_coin_pct,
                             "pullback_buys": self.b.pullback_buys,
@@ -251,8 +251,33 @@ class BollingerBot:
 
     # --------------------------------------------------------------- trading
 
-    def _size_mult(self):
+    def _drop_pct(self, candles, price):
+        """How far (in %) price is below the highest high of the last N closed candles."""
+        if not self.c1 or candles <= 0:
+            return 0.0
+        hi = max([float(r[2]) for r in self.c1[-candles:]] + [price])
+        return (1 - price / hi) * 100 if hi > 0 else 0.0
+
+    def _hard_drop(self, price):
+        """'stop', 'half' or None."""
+        b = self.b
+        if b.drop_stop_pct > 0:
+            d = self._drop_pct(b.drop_stop_candles, price)
+            if d >= b.drop_stop_pct:
+                return "stop", d
+        if b.drop_half_pct > 0:
+            d = self._drop_pct(b.drop_half_candles, price)
+            if d >= b.drop_half_pct:
+                return "half", d
+        return None, 0.0
+
+    def _size_mult(self, price=None):
         mult, why = 1.0, []
+        if price is not None:
+            kind, d = self._hard_drop(price)
+            if kind == "half":
+                mult *= 0.5
+                why.append(f"falling hard, -{d:.1f}%")
         if (self.state.get("trend") or {}).get("down"):
             mult *= self.b.downtrend_size
             why.append("downtrend")
@@ -320,7 +345,11 @@ class BollingerBot:
         if limit is not None and price > limit:
             return self._skip(price, f"buy #{st['streak']['count'] + 1} in a row needs ${limit:,.2f} or lower "
                                      f"({b.step_down_pct * st['streak']['count']:.1f}% under the last buy)", **signal)
-        mult, why = self._size_mult()
+        kind, d = self._hard_drop(price)
+        if kind == "stop":
+            return self._skip(price, f"falling hard: down {d:.1f}% from the high of the last "
+                                     f"{b.drop_stop_candles} candles (stop buying at {b.drop_stop_pct:g}%)", **signal)
+        mult, why = self._size_mult(price)
         want = self.cfg.capital_usd * b.buy_size_pct / 100 * mult
         eq = self.equity(price)
         room = eq * b.max_coin_pct / 100 - st["balances"]["base"] * price
@@ -400,6 +429,11 @@ class BollingerBot:
         if price >= bands["upper"]:
             for lot in list(st["lots"]):
                 if not lot.get("top") and not lot.get("half"):
+                    if self.b.upper_sell_no_loss:
+                        # Nov 1 2026 (Todd): skip if selling here wouldn't beat cost + the sell fee
+                        breakeven = lot["cost"] / lot["qty"] * (1 + self.cfg.fees.taker_pct / 100)
+                        if price <= breakeven:
+                            continue
                     self._sell(lot, price, f"price reached the upper band ${bands['upper']:,.2f}")
         for lot in list(st["lots"]):
             target = self._target(lot)
