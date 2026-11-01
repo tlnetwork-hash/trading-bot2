@@ -345,8 +345,8 @@ class BollingerBot:
         if limit is not None and price > limit:
             return self._skip(price, f"buy #{st['streak']['count'] + 1} in a row needs ${limit:,.2f} or lower "
                                      f"({b.step_down_pct * st['streak']['count']:.1f}% under the last buy)", **signal)
-        kind, d = self._hard_drop(price)
-        if kind == "stop":
+        drop, d = self._hard_drop(price)   # Nov 1: was "kind, d =" which wiped out the buy type
+        if drop == "stop":
             return self._skip(price, f"falling hard: down {d:.1f}% from the high of the last "
                                      f"{b.drop_stop_candles} candles (stop buying at {b.drop_stop_pct:g}%)", **signal)
         mult, why = self._size_mult(price)
@@ -432,7 +432,7 @@ class BollingerBot:
                     if self.b.upper_sell_no_loss:
                         # Nov 1 2026 (Todd): skip if selling here wouldn't beat cost + the sell fee
                         breakeven = lot["cost"] / lot["qty"] * (1 + self.cfg.fees.taker_pct / 100)
-                        if price <= breakeven:
+                        if price <= breakeven * 1.001:   # +0.1% cushion: market sells fill a bit under the quote
                             continue
                     self._sell(lot, price, f"price reached the upper band ${bands['upper']:,.2f}")
         for lot in list(st["lots"]):
