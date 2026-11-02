@@ -53,6 +53,7 @@ bollinger:
   half_profit_pct: 0.4  # Nov 1 (Todd): wider sell gap (was 0.25)
   upper_sell_no_loss: true  # Nov 1 (Todd): upper-band sell only if above that buy's cost + fees, else wait for its target. Undo: *.pre-noloss
   upper_sell_min_pct: 0.5  # Nov 1 (Todd): upper-band sells need +0.5% over cost+fees. Undo: *.pre-uppermin
+  cash_guard: true      # Nov 1 (Todd): phone alert if other trades use this bot's USD/SOL (watch-only). Undo: *.pre-cashguard
 
 exchange: binanceus
 symbol: SOL/USD

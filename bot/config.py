@@ -88,6 +88,9 @@ class BollingerConfig:
     upper_sell_no_loss: bool = False
     # Nov 1 2026 (Todd): upper-band sells also need at least this % profit over cost + fees (0 = off)
     upper_sell_min_pct: float = 0.0
+    # Nov 1 2026 (Todd): live only - alert if the exchange account holds less USD/coin than this bot owns
+    cash_guard: bool = False
+    cash_guard_minutes: int = 5
 
 
 @dataclass

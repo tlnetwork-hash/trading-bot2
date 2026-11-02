@@ -24,6 +24,7 @@ import json
 import logging
 import statistics
 import threading
+import time
 
 import ccxt
 
@@ -112,6 +113,7 @@ class BollingerBot:
         self.last_history = None
         self.network_failures = 0
         self.last_error_email = None
+        self.cash_guard_at = 0.0
 
     # ------------------------------------------------------------------ loop
 
@@ -155,10 +157,53 @@ class BollingerBot:
                     self._check_pullback(price, kind="low-half pullback", level=lambda x: (x[1] + x[2]) / 2)
             self._check_sells(price)
             self._check_kill_switch(price)
+        self._cash_guard(price)
         self._refresh_display(price)
         self._maybe_daily_report(price)
         self._record_history(price)
         self.save()
+
+    def _cash_guard(self, price):
+        """Nov 1 2026 (Todd): other trades share this Binance.US account. Every few minutes,
+        compare what's really free in the account with what this bot owns, and send a phone
+        alert if something else has used the bot's USD or SOL. Watch-only: never trades."""
+        if not (self.live and self.b.cash_guard):
+            return
+        now = time.time()
+        if now - self.cash_guard_at < self.b.cash_guard_minutes * 60:
+            return
+        self.cash_guard_at = now
+        try:
+            free_coin, free_usd = self.market.free_balance()
+        except Exception as e:
+            log.warning("cash guard: could not read the account balance: %s", e)
+            return
+        st = self.state
+        g = st.setdefault("cash_guard", {"alerted": False, "short": 0.0, "at": 0.0})
+        own_usd, own_coin = st["balances"]["quote"], st["balances"]["base"]
+        short_usd = max(0.0, own_usd - free_usd)
+        short_coin = max(0.0, own_coin - free_coin)
+        short = short_usd + short_coin * price          # total missing, in dollars
+        base = self.market.base if hasattr(self.market, "base") else "coin"
+        if short > 1.0:
+            again = (not g["alerted"] or short >= g["short"] + 5.0 or now - g["at"] >= 6 * 3600)
+            log.warning("cash guard: account is short $%.2f of this bot's money "
+                        "(bot owns $%.2f + %.4f %s; free in account $%.2f + %.4f)",
+                        short, own_usd, own_coin, base, free_usd, free_coin)
+            if again:
+                lines = [f"Something else in your Binance.US account is using the SOL bot's money.",
+                         f"Missing: ${short:,.2f}"]
+                if short_usd > 0.01:
+                    lines.append(f"USD: bot owns ${own_usd:,.2f}, account has ${free_usd:,.2f} free (short ${short_usd:,.2f})")
+                if short_coin > 0:
+                    lines.append(f"{base}: bot owns {own_coin:.4f}, account has {free_coin:.4f} free")
+                lines.append("The bot keeps running but its buys will be smaller or skipped until the money is back.")
+                self.notifier.send(f"Cash guard: SOL bot short ${short:,.2f}", "\n".join(lines), priority="high")
+                g.update(alerted=True, short=short, at=now)
+        elif g["alerted"] and short <= 0.5:
+            log.info("cash guard: all of this bot's money is back in the account")
+            self.notifier.send("Cash guard: all clear", "The SOL bot's money is all back in the account.")
+            g.update(alerted=False, short=0.0, at=now)
 
     def save(self):
         save_state(self.cfg.state_path, self.state)
