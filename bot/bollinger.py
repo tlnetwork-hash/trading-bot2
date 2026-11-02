@@ -185,12 +185,16 @@ class BollingerBot:
         short_coin = max(0.0, own_coin - free_coin)
         short = short_usd + short_coin * price          # total missing, in dollars
         base = self.market.base if hasattr(self.market, "base") else "coin"
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        hour = datetime.now(ZoneInfo("America/Chicago")).hour
+        day = self.b.cash_guard_day_start <= hour < self.b.cash_guard_day_end   # night: hold alerts till morning
         if short > 1.0:
             again = (not g["alerted"] or short >= g["short"] + 5.0 or now - g["at"] >= 6 * 3600)
             log.warning("cash guard: account is short $%.2f of this bot's money "
                         "(bot owns $%.2f + %.4f %s; free in account $%.2f + %.4f)",
                         short, own_usd, own_coin, base, free_usd, free_coin)
-            if again:
+            if again and day:
                 lines = [f"Something else in your Binance.US account is using the SOL bot's money.",
                          f"Missing: ${short:,.2f}"]
                 if short_usd > 0.01:
@@ -200,7 +204,7 @@ class BollingerBot:
                 lines.append("The bot keeps running but its buys will be smaller or skipped until the money is back.")
                 self.notifier.send(f"Cash guard: SOL bot short ${short:,.2f}", "\n".join(lines), priority="high")
                 g.update(alerted=True, short=short, at=now)
-        elif g["alerted"] and short <= 0.5:
+        elif g["alerted"] and short <= 0.5 and day:
             log.info("cash guard: all of this bot's money is back in the account")
             self.notifier.send("Cash guard: all clear", "The SOL bot's money is all back in the account.")
             g.update(alerted=False, short=0.0, at=now)

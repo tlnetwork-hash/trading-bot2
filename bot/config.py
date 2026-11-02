@@ -91,6 +91,9 @@ class BollingerConfig:
     # Nov 1 2026 (Todd): live only - alert if the exchange account holds less USD/coin than this bot owns
     cash_guard: bool = False
     cash_guard_minutes: int = 5
+    # Nov 1 2026 (Todd): cash guard alerts only in the daytime (Central time); night alerts wait till morning
+    cash_guard_day_start: int = 7
+    cash_guard_day_end: int = 21
 
 
 @dataclass
