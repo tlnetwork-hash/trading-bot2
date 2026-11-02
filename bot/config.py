@@ -86,6 +86,8 @@ class BollingerConfig:
     # Nov 1 2026 (Todd): only take the 'sell at the upper band' exit when it beats that buy's
     # cost plus fees; otherwise the buy waits for its normal target.
     upper_sell_no_loss: bool = False
+    # Nov 1 2026 (Todd): upper-band sells also need at least this % profit over cost + fees (0 = off)
+    upper_sell_min_pct: float = 0.0
 
 
 @dataclass

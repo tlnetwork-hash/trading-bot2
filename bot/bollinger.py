@@ -434,6 +434,11 @@ class BollingerBot:
                         breakeven = lot["cost"] / lot["qty"] * (1 + self.cfg.fees.taker_pct / 100)
                         if price <= breakeven * 1.001:   # +0.1% cushion: market sells fill a bit under the quote
                             continue
+                    if self.b.upper_sell_min_pct > 0:
+                        # Nov 1 2026 (Todd): upper-band sell must clear cost + fees by this % (no penny sells)
+                        be = lot["cost"] / lot["qty"] * (1 + self.cfg.fees.taker_pct / 100)
+                        if price < be * (1 + self.b.upper_sell_min_pct / 100):
+                            continue
                     self._sell(lot, price, f"price reached the upper band ${bands['upper']:,.2f}")
         for lot in list(st["lots"]):
             target = self._target(lot)
