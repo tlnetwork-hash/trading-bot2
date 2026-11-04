@@ -133,7 +133,7 @@ class BollingerBot:
             except Exception as e:
                 log.exception("error during tick")
                 self._error_email(e)
-            stop_event.wait(self.cfg.poll_seconds)
+            stop_event.wait(self._poll_wait())
         log.info("bot stopped")
 
     def tick(self):
@@ -503,6 +503,26 @@ class BollingerBot:
                 if self._arm_trail(lot, price, target, bands, f"reached its target ${target:,.2f} ({which})"):
                     continue
                 self._sell(lot, price, f"reached its target ${target:,.2f} ({which})")
+
+    def _poll_wait(self):
+        """Nov 4 2026 (Todd): fast checks during a run, normal checks otherwise."""
+        fast = self.b.fast_poll_seconds
+        try:
+            st = self.state
+            price, bands = st.get("last_price"), st.get("bands")
+            if not fast or st["status"] != "running" or not price or not bands:
+                return self.cfg.poll_seconds
+            lots = st["lots"]
+            near = 1 - self.b.fast_poll_near_pct / 100
+            run = (any(l.get("trail") for l in lots) or price >= bands["upper"] or
+                   any(price >= self._target(l) * near for l in lots))
+        except Exception:
+            return self.cfg.poll_seconds
+        if run != getattr(self, "_fast_on", False):
+            self._fast_on = run
+            log.info("price checks every %ss (%s)", fast if run else self.cfg.poll_seconds,
+                     "run / sell point close" if run else "back to normal")
+        return fast if run else self.cfg.poll_seconds
 
     def _running(self, price, bands):
         trend = self.state.get("trend") or {}

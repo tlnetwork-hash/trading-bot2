@@ -100,6 +100,10 @@ class BollingerConfig:
     trail_sells: bool = False
     trail_pct: float = 0.3
     trail_only_running: bool = True
+    # Nov 4 2026 (Todd): check price this often (seconds) during a run - a trailing sell is armed,
+    # price is at/above the upper band, or a buy is close to its sell point. 0 = off.
+    fast_poll_seconds: int = 0
+    fast_poll_near_pct: float = 0.3
 
 
 @dataclass

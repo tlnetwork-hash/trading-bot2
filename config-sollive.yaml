@@ -56,6 +56,8 @@ bollinger:
   trail_sells: true        # Nov 4 (Todd): when running, follow price up and sell on a pullback. Undo: *.pre-trail
   trail_pct: 0.3           # sell when price drops 0.3% from its high (never below the sell point)
   trail_only_running: true # only trail when price is above the upper band or trend is not down
+  fast_poll_seconds: 5     # Nov 4 (Todd): check every 5s during a run (normal is 30s). 0 = off. Undo: *.pre-fastpoll
+  fast_poll_near_pct: 0.3  # 'during a run' also means a buy is within 0.3% of its sell point
   cash_guard: true      # Nov 1 (Todd): phone alert if other trades use this bot's USD/SOL (watch-only). Undo: *.pre-cashguard
 
 exchange: binanceus
