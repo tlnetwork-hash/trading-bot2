@@ -155,6 +155,7 @@ class BollingerBot:
                     self._check_pullback(price, kind="high-half pullback", level=lambda x: (x[0] + x[1]) / 2)
                 if self.b.half_buys and self.state["stats"]["buys"] == bought_before:
                     self._check_pullback(price, kind="low-half pullback", level=lambda x: (x[1] + x[2]) / 2)
+            self._check_trails(price)
             self._check_sells(price)
             self._check_kill_switch(price)
         self._cash_guard(price)
@@ -477,7 +478,7 @@ class BollingerBot:
             return
         if price >= bands["upper"]:
             for lot in list(st["lots"]):
-                if not lot.get("top") and not lot.get("half"):
+                if not lot.get("top") and not lot.get("half") and not lot.get("trail"):
                     if self.b.upper_sell_no_loss:
                         # Nov 1 2026 (Todd): skip if selling here wouldn't beat cost + the sell fee
                         breakeven = lot["cost"] / lot["qty"] * (1 + self.cfg.fees.taker_pct / 100)
@@ -488,14 +489,51 @@ class BollingerBot:
                         be = lot["cost"] / lot["qty"] * (1 + self.cfg.fees.taker_pct / 100)
                         if price < be * (1 + self.b.upper_sell_min_pct / 100):
                             continue
+                    if self._arm_trail(lot, price, price, bands, f"price reached the upper band ${bands['upper']:,.2f}"):
+                        continue
                     self._sell(lot, price, f"price reached the upper band ${bands['upper']:,.2f}")
         for lot in list(st["lots"]):
+            if lot.get("trail"):
+                continue
             target = self._target(lot)
             if price >= target:
                 which = (f"top buy +{self.b.top_profit_pct:g}%" if lot.get("top") else
                          f"half-line buy +{self.b.half_profit_pct:g}%" if lot.get("half") else
                          "middle band" if target == bands["middle"] else f"+{self.b.min_profit_pct:g}% minimum")
+                if self._arm_trail(lot, price, target, bands, f"reached its target ${target:,.2f} ({which})"):
+                    continue
                 self._sell(lot, price, f"reached its target ${target:,.2f} ({which})")
+
+    def _running(self, price, bands):
+        trend = self.state.get("trend") or {}
+        return price >= bands["upper"] or not trend.get("down")
+
+    def _arm_trail(self, lot, price, floor, bands, why):
+        """Nov 4 2026 (Todd): start following price up instead of selling. True if armed."""
+        b = self.b
+        if not b.trail_sells or (b.trail_only_running and not self._running(price, bands)):
+            return False
+        lot["trail"] = {"floor": float(floor), "peak": float(price), "why": why,
+                       "at": utcnow().isoformat(timespec="seconds")}
+        log.info("trailing sell armed: lot %s at $%.2f (%s); sells on a %.2f%% drop from the high, never below $%.2f",
+                 lot["id"], price, why, b.trail_pct, floor)
+        return True
+
+    def _check_trails(self, price):
+        for lot in list(self.state["lots"]):
+            t = lot.get("trail")
+            if not t:
+                continue
+            if price > t["peak"]:
+                t["peak"] = price
+            if price < t["floor"] or price <= t["peak"] * (1 - self.b.trail_pct / 100):
+                self._sell(lot, price, f"trailing sell: high ${t['peak']:,.2f}, sell point was ${t['floor']:,.2f}")
+
+    def _sell_point(self, lot):
+        t = lot.get("trail")
+        if t:
+            return max(t["peak"] * (1 - self.b.trail_pct / 100), t["floor"])
+        return self._target(lot)
 
     def _target(self, lot):
         if lot.get("top"):
@@ -578,7 +616,7 @@ class BollingerBot:
 
     def _refresh_display(self, price):
         st = self.state
-        st["orders"] = {str(i): {"side": "sell", "price": round(self._target(lot), 4), "amount": lot["qty"]}
+        st["orders"] = {str(i): {"side": "sell", "price": round(self._sell_point(lot), 4), "amount": lot["qty"]}
                         for i, lot in enumerate(st["lots"])} if st.get("bands") else {}
         if st["status"] == "running":
             b = st.get("bands") or {}

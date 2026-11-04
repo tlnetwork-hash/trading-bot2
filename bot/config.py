@@ -94,6 +94,12 @@ class BollingerConfig:
     # Nov 1 2026 (Todd): cash guard alerts only in the daytime (Central time); night alerts wait till morning
     cash_guard_day_start: int = 7
     cash_guard_day_end: int = 21
+    # Nov 4 2026 (Todd): trailing sells. When a buy hits its sell point while price is running
+    # (above the upper band or trend not down), don't sell yet: follow price up and sell when it
+    # drops trail_pct from its high. Never sells below the original sell point.
+    trail_sells: bool = False
+    trail_pct: float = 0.3
+    trail_only_running: bool = True
 
 
 @dataclass

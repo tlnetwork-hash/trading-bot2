@@ -32,13 +32,13 @@ bollinger:
   std_dev: 2
   min_profit_pct: 0.75  # Nov 1 (Todd): wider sell gap (was 0.5). Undo: config-sollive.yaml.pre-gapwide
   buy_size_pct: 15       # full buy = ~$14.67, half = ~$7.33 (Oct 31: doubled with the added $50) (Binance.US minimum is about $1)
-  max_coin_pct: 60       # never more than ~$59 in SOL; at least 40% stays cash
+  max_coin_pct: 80       # Nov 3 (Todd): raised from 65 to use more of the idle cash. Undo: *.pre-cap80
   step_down_pct: 0.15   # Oct 31 (Todd): was 0.5 - next buy only 0.15% lower (0.15, 0.3, 0.45...). Undo: config-sollive.yaml.pre-step015
   trend_timeframe: 4h
   trend_period: 50
   trend_slope_candles: 6
   trend_flat_pct: 0.1
-  downtrend_size: 1.0   # Oct 31 (Todd): full size (was 0.5). Undo: config-sollive.yaml.pre-harddrop
+  downtrend_size: 0.5   # Nov 2 2026 (Todd): half size in downtrends again (was 1.0 since Oct 31). Undo: config-sollive.yaml.pre-trend-half
   squeeze_percentile: 20
   squeeze_lookback: 120
   squeeze_size: 1.0     # Oct 31 (Todd): full size (was 0.5)
@@ -50,14 +50,17 @@ bollinger:
   top_profit_pct: 0.75  # Nov 1 (Todd): wider sell gap (was 0.5)
   pullback_buys: true   # Oct 30 (Todd): also buy dips to the middle band while above it (undo: config-sollive.yaml.pre-pullback)
   half_buys: true       # Oct 30 (Todd): 2 more buy lines halfway lower<->middle and middle<->upper (undo: config-sollive.yaml.pre-halflines)
-  half_profit_pct: 0.4  # Nov 1 (Todd): wider sell gap (was 0.25)
+  half_profit_pct: 0.6  # Nov 2 (Todd): wider half-line sells (was 0.4)
   upper_sell_no_loss: true  # Nov 1 (Todd): upper-band sell only if above that buy's cost + fees, else wait for its target. Undo: *.pre-noloss
   upper_sell_min_pct: 0.5  # Nov 1 (Todd): upper-band sells need +0.5% over cost+fees. Undo: *.pre-uppermin
+  trail_sells: true        # Nov 4 (Todd): when running, follow price up and sell on a pullback. Undo: *.pre-trail
+  trail_pct: 0.3           # sell when price drops 0.3% from its high (never below the sell point)
+  trail_only_running: true # only trail when price is above the upper band or trend is not down
   cash_guard: true      # Nov 1 (Todd): phone alert if other trades use this bot's USD/SOL (watch-only). Undo: *.pre-cashguard
 
 exchange: binanceus
 symbol: SOL/USD
-capital_usd: 97.78   # Oct 31 2026 (Todd): added $50 (was 50); kill switch now $88.00 (10% below $97.78). Undo: *.pre-add50 files
+capital_usd: 213.14   # Nov 2 2026 evening (Todd): added another $50 (was 163.14); kill switch now ~$191.83 (10% below). Undo: *.pre-add50b
 
 grid:
   timeframe: 1h
