@@ -3,6 +3,9 @@
 A bot that trades SOL/USD on Kraken around the clock using a **grid strategy**, runs on a
 cheap cloud server, and emails you about everything it does.
 
+> **Want to trade stocks instead of crypto?** See **[STOCKS.md](STOCKS.md)**: a stock bot that
+> scans the market for moving stocks, reads the news for catalysts, and trades through Alpaca.
+
 It starts in **paper mode**: real Kraken prices, fake money. When you're happy with how it
 behaves, you change one line to trade for real.
 

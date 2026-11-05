@@ -1,0 +1,49 @@
+# Stock bot settings. After editing:  docker compose restart stock-bot
+# Full explanation of every setting: STOCKS.md
+
+# paper = Alpaca paper account (fake money, real prices)
+# live  = your real Alpaca account (uses ALPACA_LIVE_API_KEY / _SECRET)
+mode: paper
+
+# Most money the bot will have in stocks at once. It only ever sells stocks
+# it bought itself, never anything else in your account.
+capital_usd: 1000
+
+poll_seconds: 30
+data_feed: iex          # iex is free. sip (paid Alpaca plan) sees all market volume
+
+scanner:
+  scan_minutes: 5            # look for new trades every 5 minutes
+  min_price: 3               # no penny stocks
+  max_price: 300
+  min_gain_pct: 3            # up at least 3% today...
+  max_gain_pct: 40           # ...but not more than 40% (too late, likely to crash back)
+  min_relative_volume: 2     # trading at least 2x its normal volume
+  min_dollar_volume: 1000000 # at least $1M changed hands today
+  max_spread_pct: 0.5        # bid/ask gap no wider than 0.5%
+  near_high_pct: 3           # within 3% of today's high (still strong)
+  breakout_bars: 3           # price above the highs of the last 3 five-minute bars
+  universe_size: 50          # look at the top 50 gainers + 50 most active
+  exclude: []                # e.g. [TSLA, GME] to never trade them
+
+news:
+  enabled: true
+  lookback_hours: 16         # last night + pre-market + today
+  min_score_to_buy: 0        # negative news (offerings, lawsuits...) blocks a buy
+  require_news: false        # true = only buy stocks with fresh good news
+  news_weight: 1.0           # how much good news moves a stock up the ranking
+  alert_min_score: 2         # phone alert for headlines at least this strong
+
+trade:
+  style: day                 # day = sell everything before the close; swing = hold overnight
+  max_positions: 3
+  risk_per_trade_pct: 1.0    # lose at most 1% of capital ($10 of $1000) when a stop hits
+  max_position_pct: 30       # no single stock more than 30% of capital
+  stop_loss_pct: 3           # sell if it falls 3% below the buy price
+  take_profit_pct: 6         # sell if it rises 6% above the buy price
+  entry_delay_minutes: 15    # wait 15 min after the 9:30 open (it's chaotic)
+  entry_cutoff_minutes: 60   # no new buys in the last hour
+  flatten_minutes: 10        # day style: sell everything 10 min before the close
+  max_trades_per_day: 5
+  daily_loss_limit_pct: 3    # down 3% of capital today -> sell and stop until tomorrow
+  respect_pdt: true          # accounts under $25k: never a 4th day trade in 5 days

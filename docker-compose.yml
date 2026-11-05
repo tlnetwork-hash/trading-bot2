@@ -64,3 +64,18 @@ services:
     ports:
       - "${DASHBOARD_BIND:-127.0.0.1}:8081:8080"
     logging: *logging
+
+  # Stock bot: scans the US stock market and the news, trades through Alpaca.
+  # Settings in config-stocks.yaml, data in ./data-stocks. See STOCKS.md.
+  #   docker compose exec stock-bot python -m stockbot scan
+  stock-bot:
+    image: grid-bot
+    container_name: stock-bot
+    command: ["python", "-m", "stockbot"]
+    restart: unless-stopped
+    depends_on: [bot]              # bot builds the shared image
+    env_file: .env
+    volumes:
+      - ./config-stocks.yaml:/app/config-stocks.yaml:ro
+      - ./data-stocks:/app/data-stocks
+    logging: *logging
